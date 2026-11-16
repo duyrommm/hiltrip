@@ -352,7 +352,7 @@ PLAYER_BODY = """
   <h1>Vào làng</h1>
   <p class="sub">Nhập tên để mọi người nhận ra bạn.</p>
   <form method="POST" action="/join" class="panel">
-    <input type="text" name="username" maxlength="30" placeholder="Tên của bạn, ví dụ: Khoa" required autocomplete="off" autofocus>
+    <input type="text" name="username" maxlength="30" placeholder="Tên của bạn, ví dụ: Duy đẹp trai" required autocomplete="off" autofocus>
     <button type="submit">Vào phòng</button>
   </form>
   {% if phase != 'LOBBY' %}<p class="sub" style="margin-top:14px">Ván đang diễn ra. Bạn sẽ được chia vai ở ván sau.</p>{% endif %}
