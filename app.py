@@ -1,9 +1,21 @@
-import random
 import os
-from flask import Flask, render_template_string, request, redirect, url_for, session
+import random
+from flask import Flask, render_template_string, request, redirect, url_for, session, abort
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'default-fallback-key')
+app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)   # đặt SECRET_KEY trên Render (Environment)
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "")   # có đặt → /admin cần ?key=<ADMIN_KEY> một lần
+
+
+@app.before_request
+def guard_admin():
+    if not ADMIN_KEY or not request.path.startswith("/admin"):
+        return None
+    if request.args.get("key") == ADMIN_KEY:
+        session["is_admin"] = True
+    if not session.get("is_admin"):
+        abort(403)
+    return None
 
 game_data = {
     "phase": "LOBBY",         # LOBBY -> NIGHT -> DAY -> VOTE -> END
@@ -146,7 +158,7 @@ def index():
 
 @app.route('/join', methods=['POST'])
 def join():
-    username = request.form.get('username').strip()
+    username = (request.form.get('username') or '').strip()[:30]
     if username:
         session['username'] = username
         if username not in game_data["players"]:
@@ -281,5 +293,4 @@ def admin_reset():
     return redirect(url_for('admin_panel'))
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
