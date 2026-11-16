@@ -4,7 +4,7 @@ from flask import Flask, render_template_string, request, redirect, url_for, ses
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)   # đặt SECRET_KEY trên Render (Environment)
-ADMIN_KEY = os.environ.get("ADMIN_KEY", "")   # có đặt → /admin cần ?key=<ADMIN_KEY> một lần
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "Duy@123123")   # có đặt → /admin cần ?key=<ADMIN_KEY> một lần
 
 
 @app.before_request
