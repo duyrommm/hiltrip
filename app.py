@@ -1,10 +1,31 @@
 import os
 import random
-from flask import Flask, render_template_string, request, redirect, url_for, session, abort
+import threading
+from flask import Flask, render_template_string, request, redirect, url_for, session, abort, jsonify
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)   # đặt SECRET_KEY trên Render (Environment)
-ADMIN_KEY = os.environ.get("ADMIN_KEY", "Duy@123123")   # có đặt → /admin cần ?key=<ADMIN_KEY> một lần
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "")   # đặt ADMIN_KEY trên Render → /admin cần ?key=<ADMIN_KEY> một lần
+
+_lock = threading.Lock()
+
+game_data = {
+    "phase": "LOBBY",         # LOBBY -> NIGHT -> DAY -> END
+    "players": {},            # { username: {"role": str, "alive": bool, "target": str, "acted": bool} }
+    "night_result": "",
+    "version": 0,             # tăng mỗi khi trạng thái đổi → trình duyệt tự cập nhật
+}
+
+ROLES = {
+    "Wolf":     {"name": "Ma Sói",   "icon": "🐺", "cls": "wolf",  "hint": "Đêm nay chọn một người để cắn."},
+    "Seer":     {"name": "Tiên Tri", "icon": "🔮", "cls": "seer",  "hint": "Nhắm mắt, chờ quản trò gọi dậy."},
+    "Guard":    {"name": "Bảo Vệ",   "icon": "🛡️", "cls": "guard", "hint": "Nhắm mắt, chờ quản trò gọi dậy."},
+    "Villager": {"name": "Dân Làng", "icon": "🧑‍🌾", "cls": "villa", "hint": "Nhắm mắt ngủ và chờ trời sáng."},
+}
+
+
+def bump():
+    game_data["version"] += 1
 
 
 @app.before_request
@@ -17,280 +38,438 @@ def guard_admin():
         abort(403)
     return None
 
-game_data = {
-    "phase": "LOBBY",         # LOBBY -> NIGHT -> DAY -> VOTE -> END
-    "players": {},            # { username: {"role": str, "alive": bool, "target": str, "acted": bool} }
-    "night_result": "Đêm qua mọi thứ đều bình yên..."
-}
 
-HTML_TEMPLATE = """
-<!DOCTYPE html>
+# ---------------------------------------------------------------- giao diện chung
+SHELL = """<!DOCTYPE html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HILtrip Ma Sói Mini</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background-color: #121212; color: #e0e0e0; font-family: sans-serif; }
-        .card { background-color: #1e1e1e; border: 1px solid #333; }
-        .btn-custom { width: 100%; margin-bottom: 10px; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#161b33">
+<title>{{ title }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;700&family=Lora:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#161b33; --ink-2:#212847; --line:#343c63;
+  --moon:#efe6cf; --mist:#a9adc4;
+  --wolf:#e0574a; --seer:#a98be6; --guard:#5bb8b4; --villa:#d6b25e;
+  --ok:#6fcf8e; --dead:#e0574a;
+  --radius:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  min-height:100vh; background:var(--ink); color:var(--moon);
+  font:400 16px/1.55 "Be Vietnam Pro",system-ui,sans-serif;
+  transition:background .8s ease,color .8s ease;
+}
+/* Ban ngày: cả trang chuyển sang sáng */
+body.day{ --ink:#f1e9d6; --ink-2:#fffaf0; --line:#ddd0b2; --moon:#2b2a33; --mist:#6c6657;
+  --ok:#2f7d4a; --dead:#b8352a; --wolf:#b8352a; --seer:#6b4fb3; --guard:#2a7b78; --villa:#8a6512; }
+.wrap{max-width:480px;margin:0 auto;padding:20px 16px 48px}
+.brand{font:700 15px/1 "Lora",Georgia,serif;color:var(--mist);display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
+.brand a{color:var(--mist);font:500 14px "Be Vietnam Pro",system-ui,sans-serif;text-decoration:none;border:1px solid var(--line);padding:6px 12px;border-radius:999px}
+h1{font:700 30px/1.15 "Lora",Georgia,serif;margin:0 0 6px}
+.sub{color:var(--mist);margin:0 0 22px}
+.panel{background:var(--ink-2);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+.panel + .panel{margin-top:14px}
+.panel h2{font:600 15px/1.3 "Be Vietnam Pro",system-ui,sans-serif;color:var(--mist);margin:0 0 10px}
+input[type=text],select{
+  width:100%;font:inherit;color:var(--moon);background:var(--ink);
+  border:1px solid var(--line);border-radius:10px;padding:13px 14px;margin-bottom:12px;
+}
+button,.btn{
+  display:block;width:100%;font:700 16px "Be Vietnam Pro",system-ui,sans-serif;border:0;border-radius:10px;
+  padding:14px;cursor:pointer;background:var(--villa);color:#1d1a10;text-align:center;text-decoration:none;
+}
+button:active{transform:translateY(1px)}
+:focus-visible{outline:3px solid var(--seer);outline-offset:2px}
+.btn-wolf{background:var(--wolf);color:#fff}
+.btn-ghost{background:transparent;color:var(--mist);border:1px solid var(--line)}
+.roster{list-style:none;margin:0;padding:0}
+.roster li{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.roster li:last-child{border-bottom:0}
+.roster .me{font-weight:700}
+.tag{font-size:13px;padding:3px 10px;border-radius:999px;border:1px solid currentColor}
+.tag.ok{color:var(--ok)} .tag.dead{color:var(--dead)}
+.roster li.out span:first-child{text-decoration:line-through;color:var(--mist)}
+.count{color:var(--mist);font-weight:500}
+.note{border-radius:10px;padding:12px 14px;background:var(--ink);border:1px solid var(--line)}
+.note.done{border-color:var(--ok);color:var(--ok)}
+.note.bad{border-color:var(--dead);color:var(--dead)}
+
+/* Lá bài vai trò: chạm để lật, mặc định úp để người bên cạnh không nhìn thấy */
+.card-role{
+  width:100%;border:1px dashed var(--line);background:var(--ink-2);color:var(--mist);
+  border-radius:18px;padding:30px 18px;text-align:center;font-weight:500;
+}
+.card-role .face{display:none}
+.card-role.open{border-style:solid}
+.card-role.open .back{display:none}
+.card-role.open .face{display:block}
+.secret{display:none}
+body.revealed .secret{display:block}
+.card-role .icon{font-size:56px;line-height:1}
+.card-role .rname{font:700 30px/1.2 "Lora",Georgia,serif;margin:10px 0 4px}
+.card-role .rhint{color:var(--mist);font-weight:400}
+.card-role.wolf.open{border-color:var(--wolf)}  .wolf .rname{color:var(--wolf)}
+.card-role.seer.open{border-color:var(--seer)}  .seer .rname{color:var(--seer)}
+.card-role.guard.open{border-color:var(--guard)}.guard .rname{color:var(--guard)}
+.card-role.villa.open{border-color:var(--villa)}.villa .rname{color:var(--villa)}
+.r-wolf{color:var(--wolf)} .r-seer{color:var(--seer)} .r-guard{color:var(--guard)} .r-villa{color:var(--villa)}
+
+.phase-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px;vertical-align:middle}
+.live{font-size:13px;color:var(--mist);text-align:center;margin-top:18px}
+.live.off .phase-dot{background:var(--dead)}
+.flash{animation:flash .6s ease}
+@keyframes flash{from{opacity:.35}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){body{transition:none}.flash{animation:none}}
+.stack > * + *{margin-top:10px}
+</style>
 </head>
-<body class="py-4">
-    <div class="container" style="max-width: 500px;">
-        <h3 class="text-center text-warning mb-3">🐺 HILTRIP MA SÓI MINI</h3>
-        
-        {% if not session.get('username') %}
-        <div class="card p-4 shadow">
-            <h5 class="mb-3 text-center">Nhập tên của bạn để tham gia</h5>
-            <form method="POST" action="/join">
-                <div class="mb-3">
-                    <input type="text" name="username" class="form-control" placeholder="Tên hiển thị (VD: Khoa, Duy...)" required autocomplete="off">
-                </div>
-                <button type="submit" class="btn btn-warning w-100 fw-bold">Vào phòng chơi</button>
-            </form>
-        </div>
-        
-        {% else %}
-        <div class="d-flex justify-content-between align-items-center mb-3 bg-dark p-2 rounded border border-secondary">
-            <span>Xin chào, <b>{{ session.get('username') }}</b></span>
-            <a href="/logout" class="btn btn-sm btn-outline-danger">Thoát</a>
-        </div>
+<body class="{{ body_cls }}">
+<div class="wrap">
+  <div id="app">{{ body|safe }}</div>
+  <p class="live" id="live"><span class="phase-dot"></span>Tự cập nhật</p>
+</div>
+<script>
+(function(){
+  var v = {{ version }}, partial = "{{ partial_url }}", busy = false;
+  var app = document.getElementById('app'), live = document.getElementById('live');
+  var opened = false;  // lá bài đã lật chưa — giữ nguyên sau mỗi lần cập nhật
 
-        {% if phase == 'LOBBY' %}
-        <div class="card p-4 text-center">
-            <h5 class="text-info">Phòng chờ đang mở</h5>
-            <p class="text-muted">Đang chờ Quản trò chia vai trò...</p>
-            <hr class="border-secondary">
-            <h6 class="text-start">Thành viên đã vào ({{ players|length }} người):</h6>
-            <ul class="list-group list-group-flush text-start bg-transparent">
-                {% for p in players.keys() %}
-                <li class="list-group-item bg-transparent text-light border-secondary">{{ loop.index }}. {{ p }}</li>
-                {% endfor %}
-            </ul>
-        </div>
+  function wire(){
+    var c = app.querySelector('.card-role');
+    if (c){
+      if (opened) c.classList.add('open');
+      c.onclick = function(){ opened = !opened; c.classList.toggle('open', opened); document.body.classList.toggle('revealed', opened); };
+    }
+    app.querySelectorAll('form[data-confirm]').forEach(function(f){
+      f.onsubmit = function(){ return confirm(f.dataset.confirm); };
+    });
+    var cls = app.querySelector('[data-body]');
+    if (cls) document.body.className = cls.dataset.body;
+    document.body.classList.toggle('revealed', opened && !!c);
+  }
 
-        {% elif phase == 'NIGHT' %}
-        <div class="card p-4">
-            <h4 class="text-danger text-center">🌙 TRỜI ĐÃ TỐI...</h4>
-            <div class="alert alert-secondary text-center">
-                Vai trò của bạn: <b class="text-warning fs-5">
-                    {% if my_info.role == 'Wolf' %} 🐺 MA SÓI
-                    {% elif my_info.role == 'Seer' %} 🔮 TIÊN TRI
-                    {% elif my_info.role == 'Guard' %} 🛡️ BẢO VỆ
-                    {% else %} 🧑 DÂN LÀNG {% endif %}
-                </b>
-            </div>
-            
-            {% if not my_info.alive %}
-            <div class="alert alert-danger text-center">Bạn đã bị loại! Hãy quan sát mọi người.</div>
-            {% else %}
-                {% if my_info.role == 'Wolf' %}
-                    {% if not my_info.acted %}
-                    <p>Hãy chọn một người để "cắn" đêm nay:</p>
-                    <form method="POST" action="/action">
-                        <select name="target" class="form-select bg-dark text-light border-secondary mb-3">
-                            {% for p, info in players.items() %}
-                                {% if p != session.get('username') and info.alive %}
-                                <option value="{{ p }}">{{ p }}</option>
-                                {% endif %}
-                            {% endfor %}
-                        </select>
-                        <button type="submit" class="btn btn-danger btn-custom">Xác nhận mục tiêu</button>
-                    </form>
-                    {% else %}
-                    <div class="alert alert-success text-center">Bạn đã chọn mục tiêu xong. Hãy đợi trời sáng!</div>
-                    {% endif %}
-                {% else %}
-                <p class="text-center text-muted">Trời tối, bạn nhắm mắt ngủ và chờ sáng...</p>
-                {% endif %}
-            {% endif %}
-        </div>
+  function refresh(){
+    var a = document.activeElement;
+    if (busy || (a && (a.tagName === 'SELECT' || a.tagName === 'INPUT'))) { setTimeout(refresh, 1500); return; }
+    busy = true;
+    // giữ lựa chọn đang chọn dở trong ô select
+    var sel = app.querySelector('select'), keep = sel ? sel.value : null;
+    fetch(partial, {cache:'no-store'}).then(function(r){
+      if (r.redirected || !r.ok) { location.reload(); return null; }
+      return r.text();
+    }).then(function(html){
+      if (html === null) return;
+      var phaseBefore = (app.querySelector('[data-phase]')||{}).dataset;
+      app.innerHTML = html;
+      var phaseAfter = (app.querySelector('[data-phase]')||{}).dataset;
+      if (phaseBefore && phaseAfter && phaseBefore.phase !== phaseAfter.phase){
+        app.classList.remove('flash'); void app.offsetWidth; app.classList.add('flash');
+        if (phaseAfter.phase === 'NIGHT') opened = false;
+      }
+      var s2 = app.querySelector('select');
+      if (s2 && keep) { s2.value = keep; if (s2.value !== keep) s2.selectedIndex = 0; }
+      wire();
+    }).finally(function(){ busy = false; });
+  }
 
-        {% elif phase == 'DAY' or phase == 'VOTE' %}
-        <div class="card p-4">
-            <h4 class="text-warning text-center">☀️ TRỜI ĐÃ SÁNG</h4>
-            <div class="alert alert-info">
-                {{ game_data.night_result }}
-            </div>
-            <hr class="border-secondary">
-            <h5 class="text-center">Danh sách người chơi:</h5>
-            <ul class="list-group list-group-flush bg-transparent mb-3">
-                {% for p, info in players.items() %}
-                <li class="list-group-item bg-transparent text-light border-secondary d-flex justify-content-between align-items-center">
-                    <span>{{ p }}</span>
-                    <span>
-                        {% if not info.alive %}
-                        <span class="badge bg-danger">Đã chết</span>
-                        {% else %}
-                        <span class="badge bg-success">Còn sống</span>
-                        {% endif %}
-                    </span>
-                </li>
-                {% endfor %}
-            </ul>
-        </div>
+  function poll(){
+    fetch('/state', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
+      live.classList.remove('off');
+      if (d.v !== v){ v = d.v; refresh(); }
+    }).catch(function(){ live.classList.add('off'); });
+  }
 
-        {% elif phase == 'END' %}
-        <div class="card p-4 text-center">
-            <h3 class="text-success">🏁 KẾT THÚC VÁN CHƠI</h3>
-            <p class="mt-3">Cảm ơn mọi người đã tham gia HILtrip Ma Sói!</p>
-            <a href="/admin" class="btn btn-warning">Về trang Admin Panel</a>
-        </div>
-        {% endif %}
-
-        {% endif %}
-    </div>
+  wire();
+  setInterval(function(){ if (!document.hidden) poll(); }, 2000);
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) poll(); });
+})();
+</script>
 </body>
-</html>
+</html>"""
+
+
+def page(title, body, body_cls, partial_url):
+    if request.args.get("partial"):
+        return body
+    return render_template_string(SHELL, title=title, body=body, body_cls=body_cls,
+                                  partial_url=partial_url, version=game_data["version"])
+
+
+# ---------------------------------------------------------------- màn hình người chơi
+PLAYER_BODY = """
+<div data-phase="{{ phase }}" data-body="{{ body_cls }}">
+<div class="brand"><span>HILtrip Ma Sói</span>
+  {% if me %}<a href="/logout">Thoát</a>{% endif %}</div>
+
+{% if not me %}
+  <h1>Vào làng</h1>
+  <p class="sub">Nhập tên để mọi người nhận ra bạn.</p>
+  <form method="POST" action="/join" class="panel">
+    <input type="text" name="username" maxlength="30" placeholder="Tên của bạn, ví dụ: Khoa" required autocomplete="off" autofocus>
+    <button type="submit">Vào phòng</button>
+  </form>
+  {% if phase != 'LOBBY' %}<p class="sub" style="margin-top:14px">Ván đang diễn ra. Bạn sẽ được chia vai ở ván sau.</p>{% endif %}
+
+{% elif phase == 'LOBBY' %}
+  <h1>Chào {{ me }}</h1>
+  <p class="sub">Đang chờ quản trò chia vai. Màn hình sẽ tự chuyển.</p>
+  <div class="panel">
+    <h2>Trong phòng <span class="count">· {{ players|length }} người</span></h2>
+    <ul class="roster">
+      {% for p in players %}<li class="{{ 'me' if p == me }}"><span>{{ p }}</span>{% if p == me %}<span class="count">bạn</span>{% endif %}</li>{% endfor %}
+    </ul>
+  </div>
+
+{% elif phase == 'NIGHT' %}
+  <h1>🌙 Trời tối</h1>
+  <p class="sub">Che màn hình rồi chạm vào lá bài để xem vai.</p>
+  {% if role %}
+  <button type="button" class="card-role {{ role.cls }}">
+    <span class="back">Chạm để lật bài</span>
+    <span class="face"><span class="icon">{{ role.icon }}</span>
+      <span class="rname" style="display:block">{{ role.name }}</span>
+      <span class="rhint">{{ role.hint }}</span></span>
+  </button>
+  {% else %}
+  <div class="note">Bạn vào sau khi chia vai nên ván này chỉ xem. Chờ ván sau nhé.</div>
+  {% endif %}
+
+  {% if info and not info.alive %}
+    <div class="note bad" style="margin-top:14px">Bạn đã bị loại. Hãy giữ im lặng và quan sát.</div>
+  {% elif info and info.role == 'Wolf' %}
+    <div class="panel secret" style="margin-top:14px">
+    {% if not info.acted %}
+      <h2>Cắn ai đêm nay?</h2>
+      <form method="POST" action="/action">
+        <select name="target">
+          {% for p, i in players.items() %}{% if p != me and i.alive and i.role != 'Wolf' %}<option value="{{ p }}">{{ p }}</option>{% endif %}{% endfor %}
+        </select>
+        <button type="submit" class="btn-wolf">Chốt mục tiêu</button>
+      </form>
+    {% else %}
+      <div class="note done">Đã chốt: {{ info.target }}. Chờ trời sáng.</div>
+    {% endif %}
+    </div>
+  {% endif %}
+
+{% elif phase == 'DAY' %}
+  <h1>☀️ Trời sáng</h1>
+  <p class="sub">{{ night_result }}</p>
+  {% if info and not info.alive %}<div class="note bad" style="margin-bottom:14px">Bạn đã bị loại.</div>{% endif %}
+  <div class="panel">
+    <h2>Dân làng <span class="count">· còn {{ alive }} / {{ total }}</span></h2>
+    <ul class="roster">
+      {% for p, i in players.items() %}{% if i.role %}
+      <li class="{{ 'out' if not i.alive }} {{ 'me' if p == me }}"><span>{{ p }}</span>
+        {% if i.alive %}<span class="tag ok">Còn sống</span>{% else %}<span class="tag dead">Đã chết</span>{% endif %}</li>
+      {% endif %}{% endfor %}
+    </ul>
+  </div>
+
+{% elif phase == 'END' %}
+  <h1>Hết ván</h1>
+  <p class="sub">Lật bài toàn bộ. Cảm ơn mọi người đã chơi!</p>
+  <div class="panel">
+    <ul class="roster">
+      {% for p, i in players.items() %}{% if i.role %}
+      <li class="{{ 'out' if not i.alive }}"><span>{{ p }}</span><span class="r-{{ roles[i.role].cls }}">{{ roles[i.role].icon }} {{ roles[i.role].name }}</span></li>
+      {% endif %}{% endfor %}
+    </ul>
+  </div>
+{% endif %}
+</div>
 """
+
 
 @app.route('/')
 def index():
     username = session.get('username')
-    my_info = game_data["players"].get(username) if username else None
-    return render_template_string(HTML_TEMPLATE, 
-                                  phase=game_data["phase"], 
-                                  players=game_data["players"], 
-                                  my_info=my_info,
-                                  game_data=game_data)
+    # phòng đã reset → tên cũ không còn trong danh sách → về màn hình nhập tên
+    if username and username not in game_data["players"]:
+        session.pop('username', None)
+        username = None
+    info = game_data["players"].get(username) if username else None
+    phase = game_data["phase"]
+    body_cls = "day" if phase in ("DAY", "END") else ""
+    players = game_data["players"]
+    body = render_template_string(
+        PLAYER_BODY, phase=phase, me=username, info=info, players=players,
+        role=ROLES.get(info["role"]) if info and info["role"] else None,
+        roles=ROLES, night_result=game_data["night_result"], body_cls=body_cls,
+        alive=sum(1 for i in players.values() if i["role"] and i["alive"]),
+        total=sum(1 for i in players.values() if i["role"]))
+    return page("HILtrip Ma Sói", body, body_cls, "/?partial=1")
+
+
+@app.route('/state')
+def state():
+    return jsonify(v=game_data["version"])
+
 
 @app.route('/join', methods=['POST'])
 def join():
     username = (request.form.get('username') or '').strip()[:30]
     if username:
         session['username'] = username
-        if username not in game_data["players"]:
-            game_data["players"][username] = {"role": "Villager", "alive": True, "target": None, "acted": False}
+        with _lock:
+            if username not in game_data["players"]:
+                # vào giữa ván: chưa có vai, xem đến ván sau
+                role = "Villager" if game_data["phase"] == "LOBBY" else None
+                game_data["players"][username] = {"role": role, "alive": True, "target": None, "acted": False}
+                bump()
     return redirect(url_for('index'))
+
 
 @app.route('/logout')
 def logout():
     session.pop('username', None)
     return redirect(url_for('index'))
 
+
 @app.route('/action', methods=['POST'])
 def action():
     username = session.get('username')
     target = request.form.get('target')
-    if username and username in game_data["players"]:
-        game_data["players"][username]["target"] = target
-        game_data["players"][username]["acted"] = True
+    with _lock:
+        me = game_data["players"].get(username)
+        if (me and game_data["phase"] == "NIGHT" and me["role"] == "Wolf" and me["alive"]
+                and target in game_data["players"]):
+            me["target"] = target
+            me["acted"] = True
+            bump()
     return redirect(url_for('index'))
 
-ADMIN_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HILtrip Admin Panel</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>body { background-color: #121212; color: #e0e0e0; font-family: sans-serif; }</style>
-</head>
-<body class="py-4">
-    <div class="container" style="max-width: 600px;">
-        <h2 class="text-warning text-center mb-4">🎛️ QUẢN TRÒ ADMIN PANEL</h2>
-        
-        <div class="card bg-dark border-secondary p-4 mb-3">
-            <h5>Trạng thái: <span class="text-info">{{ game_data.phase }}</span></h5>
-            <p>Tổng số người chơi: <b>{{ game_data.players|length }}</b></p>
-            <hr class="border-secondary">
-            <h6 class="text-muted">Danh sách phòng (Bảo mật vai trò):</h6>
-            <ul class="list-group mb-3">
-                {% for p, info in game_data.players.items() %}
-                <li class="list-group-item bg-transparent text-light border-secondary d-flex justify-content-between align-items-center">
-                    <span>{{ p }}</span>
-                    <span>
-                        {% if info.alive %}
-                            <span class="badge bg-success">Còn sống</span>
-                        {% else %}
-                            <span class="badge bg-danger">Đã chết</span>
-                        {% endif %}
-                    </span>
-                </li>
-                {% endfor %}
-            </ul>
-        </div>
 
-        <div class="card bg-dark border-secondary p-4">
-            <h5 class="mb-3">Điều khiển vòng chơi:</h5>
-            <form action="/admin/assign" method="POST" class="mb-2">
-                <button type="submit" class="btn btn-warning w-100 fw-bold">1. Phân vai & Bật Pha Đêm (NIGHT)</button>
-            </form>
-            <form action="/admin/next_phase/DAY" method="POST" class="mb-2">
-                <button type="submit" class="btn btn-danger w-100">2. Chuyển sang Sáng (DAY - Xem kết quả)</button>
-            </form>
-            <form action="/admin/next_phase/END" method="POST" class="mb-2">
-                <button type="submit" class="btn btn-success w-100">3. Kết thúc ván (END)</button>
-            </form>
-            <form action="/admin/reset" method="POST">
-                <button type="submit" class="btn btn-outline-secondary w-100 mt-3">Reset toàn bộ phòng</button>
-            </form>
-        </div>
-        <div class="text-center mt-3">
-            <a href="/" class="text-warning">Quay lại màn hình người chơi của tôi</a>
-        </div>
-    </div>
-</body>
-</html>
+# ---------------------------------------------------------------- màn hình quản trò
+PHASE_VI = {"LOBBY": "Phòng chờ", "NIGHT": "🌙 Đêm", "DAY": "☀️ Ngày", "END": "Hết ván"}
+
+ADMIN_BODY = """
+<div data-phase="{{ phase }}" data-body="{{ body_cls }}">
+<div class="brand"><span>HILtrip Quản trò</span><a href="/">Màn hình người chơi</a></div>
+<h1>{{ phase_vi[phase] }}</h1>
+<p class="sub">{{ total }} người trong phòng{% if phase != 'LOBBY' %} · còn sống {{ alive }}{% endif %}</p>
+
+{% if phase == 'NIGHT' %}
+<div class="panel">
+  <h2>Ma Sói đã chốt</h2>
+  {% if wolves_done == wolves %}<div class="note done">Đủ {{ wolves_done }}/{{ wolves }}. Có thể gọi trời sáng.</div>
+  {% else %}<div class="note">{{ wolves_done }}/{{ wolves }} sói đã chọn mục tiêu…</div>{% endif %}
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Người chơi</h2>
+  <ul class="roster">
+    {% for p, i in players.items() %}
+    <li class="{{ 'out' if not i.alive }}"><span>{{ p }}</span>
+      {% if not i.role %}<span class="count">vào sau, xem</span>
+      {% elif phase == 'LOBBY' %}<span class="count">đã vào</span>
+      {% elif i.alive %}<span class="tag ok">Còn sống</span>{% else %}<span class="tag dead">Đã chết</span>{% endif %}
+    </li>
+    {% else %}<li><span class="count">Chưa có ai. Gửi link trang chủ cho mọi người.</span></li>{% endfor %}
+  </ul>
+</div>
+
+<div class="panel stack">
+  {% if phase in ('LOBBY', 'END') %}
+  <form action="/admin/assign" method="POST"><button type="submit" {{ 'disabled' if total < 3 }}>Chia vai và bắt đầu đêm</button></form>
+  {% if total < 3 %}<p class="count" style="margin:0">Cần ít nhất 3 người.</p>{% endif %}
+  {% elif phase == 'NIGHT' %}
+  <form action="/admin/next_phase/DAY" method="POST"><button type="submit">Gọi trời sáng</button></form>
+  {% elif phase == 'DAY' %}
+  <form action="/admin/next_night" method="POST"><button type="submit">Sang đêm tiếp theo</button></form>
+  <form action="/admin/next_phase/END" method="POST" data-confirm="Kết thúc ván và lật bài cho mọi người?"><button type="submit" class="btn-ghost">Kết thúc ván, lật bài</button></form>
+  {% endif %}
+  <form action="/admin/reset" method="POST" data-confirm="Xoá toàn bộ người chơi và làm lại từ đầu?"><button type="submit" class="btn-ghost">Xoá phòng, làm lại từ đầu</button></form>
+</div>
+</div>
 """
+
 
 @app.route('/admin')
 def admin_panel():
-    return render_template_string(ADMIN_TEMPLATE, game_data=game_data)
+    players = game_data["players"]
+    phase = game_data["phase"]
+    body_cls = "day" if phase in ("DAY", "END") else ""
+    wolves = [i for i in players.values() if i["role"] == "Wolf" and i["alive"]]
+    body = render_template_string(
+        ADMIN_BODY, phase=phase, phase_vi=PHASE_VI, players=players, body_cls=body_cls,
+        total=len(players), alive=sum(1 for i in players.values() if i["role"] and i["alive"]),
+        wolves=len(wolves), wolves_done=sum(1 for i in wolves if i["acted"]))
+    return page("HILtrip Quản trò", body, body_cls, "/admin?partial=1")
+
 
 @app.route('/admin/assign', methods=['POST'])
 def admin_assign():
-    usernames = list(game_data["players"].keys())
-    total = len(usernames)
-    
-    if total <= 3:
-        roles = ["Wolf"] + ["Villager"] * (total - 1)
-    elif total <= 6:
-        roles = ["Wolf", "Seer"] + ["Villager"] * (total - 2)
-    elif total <= 10:
-        roles = ["Wolf", "Seer", "Guard"] + ["Villager"] * (total - 3)
-    else:
-        roles = ["Wolf", "Wolf", "Seer", "Guard"] + ["Villager"] * (total - 4)
-        
-    random.shuffle(roles)
-    
-    for i, uname in enumerate(usernames):
-        game_data["players"][uname]["role"] = roles[i]
-        game_data["players"][uname]["alive"] = True
-        game_data["players"][uname]["target"] = None
-        game_data["players"][uname]["acted"] = False
-        
-    game_data["phase"] = "NIGHT"
-    game_data["night_result"] = "Đêm qua trời yên biển lặng..."
+    with _lock:
+        usernames = list(game_data["players"].keys())
+        total = len(usernames)
+        if total < 3:
+            return redirect(url_for('admin_panel'))
+        if total <= 3:
+            roles = ["Wolf"] + ["Villager"] * (total - 1)
+        elif total <= 6:
+            roles = ["Wolf", "Seer"] + ["Villager"] * (total - 2)
+        elif total <= 10:
+            roles = ["Wolf", "Seer", "Guard"] + ["Villager"] * (total - 3)
+        else:
+            roles = ["Wolf", "Wolf", "Seer", "Guard"] + ["Villager"] * (total - 4)
+        random.shuffle(roles)
+        for i, uname in enumerate(usernames):
+            game_data["players"][uname].update(role=roles[i], alive=True, target=None, acted=False)
+        game_data["phase"] = "NIGHT"
+        game_data["night_result"] = ""
+        bump()
     return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/next_night', methods=['POST'])
+def admin_next_night():
+    with _lock:
+        for info in game_data["players"].values():
+            info["target"] = None
+            info["acted"] = False
+        game_data["phase"] = "NIGHT"
+        bump()
+    return redirect(url_for('admin_panel'))
+
 
 @app.route('/admin/next_phase/<phase>', methods=['POST'])
 def admin_next_phase(phase):
-    if phase == "DAY":
-        wolf_target = None
-        for uname, info in game_data["players"].items():
-            if info["role"] == "Wolf" and info["target"]:
-                wolf_target = info["target"]
-                break
-        
-        if wolf_target and wolf_target in game_data["players"]:
-            game_data["players"][wolf_target]["alive"] = False
-            game_data["night_result"] = f"Đêm qua, Sói đã ghé thăm và lấy đi một mạng: {wolf_target}!"
-        else:
-            game_data["night_result"] = "Đêm qua mọi người ngủ ngon, không ai bị thương."
-            
-    game_data["phase"] = phase
+    if phase not in ("DAY", "END"):
+        abort(400)
+    with _lock:
+        if phase == "DAY" and game_data["phase"] == "NIGHT":
+            wolf_target = None
+            for info in game_data["players"].values():
+                if info["role"] == "Wolf" and info["alive"] and info["target"]:
+                    wolf_target = info["target"]
+                    break
+            if wolf_target and wolf_target in game_data["players"]:
+                game_data["players"][wolf_target]["alive"] = False
+                game_data["night_result"] = f"Đêm qua Sói đã ghé thăm. {wolf_target} không qua khỏi."
+            else:
+                game_data["night_result"] = "Đêm qua yên bình, không ai bị cắn."
+        game_data["phase"] = phase
+        bump()
     return redirect(url_for('admin_panel'))
+
 
 @app.route('/admin/reset', methods=['POST'])
 def admin_reset():
-    game_data["phase"] = "LOBBY"
-    game_data["players"] = {}
-    game_data["night_result"] = "Đêm qua mọi thứ đều bình yên..."
+    with _lock:
+        game_data["phase"] = "LOBBY"
+        game_data["players"] = {}
+        game_data["night_result"] = ""
+        bump()
     return redirect(url_for('admin_panel'))
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
