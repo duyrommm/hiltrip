@@ -1,6 +1,9 @@
 import os
+import json
 import random
 import threading
+import logging
+from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template_string, request, redirect, url_for, session, abort, jsonify
 
 app = Flask(__name__)
@@ -20,6 +23,7 @@ game_data = {
     "hunter_ctx": "night",    # Thợ Săn chết vì đêm ("night") hay vì treo cổ ("vote")
     "game_id": 0,             # tăng mỗi ván mới → lá bài úp lại
     "spy": None,              # trạng thái ván Truy Tìm Gián Điệp
+    "mission": None,          # Điệp vụ Vũng Tàu, chơi suốt chuyến, không bị xoá khi reset phòng
     "version": 0,             # tăng mỗi khi trạng thái đổi → trình duyệt tự cập nhật
 }
 
@@ -48,8 +52,50 @@ SPY_START_FORM = """
 """
 
 
+# ---------------------------------------------------------------- lưu trạng thái (PostgreSQL)
+# Có DATABASE_URL → mỗi lần trạng thái đổi sẽ lưu vào DB, khởi động lại thì nạp lại.
+# Nhờ vậy Render ngủ/khởi động lại cũng không mất phòng, điểm, nhiệm vụ.
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+VN_TZ = timezone(timedelta(hours=7))
+log = logging.getLogger("hiltrip")
+
+
+def _db():
+    import psycopg
+    return psycopg.connect(DATABASE_URL, connect_timeout=5, autocommit=True)
+
+
+def db_load():
+    if not DATABASE_URL:
+        return
+    try:
+        with _db() as c:
+            c.execute("CREATE TABLE IF NOT EXISTS hiltrip_state "
+                      "(id INT PRIMARY KEY, data TEXT NOT NULL, updated TIMESTAMPTZ DEFAULT now())")
+            row = c.execute("SELECT data FROM hiltrip_state WHERE id = 1").fetchone()
+        if row:
+            saved = json.loads(row[0])
+            game_data.update(saved)
+            log.warning("Đã nạp trạng thái từ DB (version %s)", game_data.get("version"))
+    except Exception as e:                      # DB lỗi thì vẫn chạy trong bộ nhớ
+        log.warning("Không nạp được DB: %s", e)
+
+
+def db_save():
+    if not DATABASE_URL:
+        return
+    try:
+        data = json.dumps(game_data, ensure_ascii=False)
+        with _db() as c:
+            c.execute("INSERT INTO hiltrip_state (id, data, updated) VALUES (1, %s, now()) "
+                      "ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated = now()", (data,))
+    except Exception as e:
+        log.warning("Không lưu được DB: %s", e)
+
+
 def bump():
     game_data["version"] += 1
+    db_save()
 
 
 def can_vote(i):
@@ -148,6 +194,7 @@ body.day{ --ink:#f1e9d6; --ink-2:#fffaf0; --line:#ddd0b2; --moon:#2b2a33; --mist
   --witch:#3d7d2c; --hunter:#a8561a; --idiot:#b23d78; }
 .wrap{max-width:480px;margin:0 auto;padding:20px 16px 48px}
 .brand{font:700 15px/1 "Lora",Georgia,serif;color:var(--mist);display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
+.brand span a + a{margin-left:6px}
 .brand a{color:var(--mist);font:500 14px "Be Vietnam Pro",system-ui,sans-serif;text-decoration:none;border:1px solid var(--line);padding:6px 12px;border-radius:999px}
 h1{font:700 30px/1.15 "Lora",Georgia,serif;margin:0 0 6px}
 .sub{color:var(--mist);margin:0 0 22px}
@@ -299,7 +346,7 @@ def page(title, body, body_cls, partial_url):
 PLAYER_BODY = """
 <div data-phase="{{ phase }}" data-game="{{ game_id }}" data-body="{{ body_cls }}">
 <div class="brand"><span>HILtrip Ma Sói</span>
-  {% if me %}<a href="/logout">Thoát</a>{% endif %}</div>
+  <span>{% if mission_on %}<a href="/mission">🎯 Điệp vụ</a> {% endif %}{% if me %}<a href="/logout">Thoát</a>{% endif %}</span></div>
 
 {% if not me %}
   <h1>Vào làng</h1>
@@ -499,6 +546,7 @@ def index():
     players = game_data["players"]
     body = render_template_string(
         PLAYER_BODY, phase=phase, me=username, info=info, players=players,
+        mission_on=bool(game_data.get("mission")),
         game_id=game_data["game_id"],
         role=ROLES.get(info["role"]) if info and info["role"] else None,
         roles=ROLES, night_result=game_data["night_result"], body_cls=body_cls,
@@ -631,7 +679,7 @@ PHASE_VI = {"LOBBY": "Phòng chờ", "NIGHT": "🌙 Đêm", "DAY": "☀️ Ngày
 
 ADMIN_BODY = """
 <div data-phase="{{ phase }}" data-game="{{ game_id }}" data-body="{{ body_cls }}">
-<div class="brand"><span>HILtrip Quản trò</span><a href="/">Màn hình người chơi</a></div>
+<div class="brand"><span>HILtrip Quản trò</span><span><a href="/admin/mission">🎯 Điệp vụ</a> <a href="/">Người chơi</a></span></div>
 <h1>{{ phase_vi[phase] }}</h1>
 <p class="sub">{{ total }} người trong phòng{% if phase != 'LOBBY' %} · còn sống {{ alive }}{% endif %}</p>
 
@@ -1008,7 +1056,7 @@ SPY_CARD = """
 
 SPY_BODY = """
 <div data-phase="SPY-{{ sp.phase }}" data-game="{{ game_id }}" data-body="">
-<div class="brand"><span>HILtrip Gián Điệp</span><a href="/logout">Thoát</a></div>
+<div class="brand"><span>HILtrip Gián Điệp</span><span>{% if mission_on %}<a href="/mission">🎯 Điệp vụ</a> {% endif %}<a href="/logout">Thoát</a></span></div>
 
 {% if not mine %}
   <h1>🕵️ Đang có ván Gián Điệp</h1>
@@ -1087,7 +1135,7 @@ SPY_BODY = """
 
 SPY_ADMIN = """
 <div data-phase="SPY-{{ sp.phase }}" data-game="{{ game_id }}" data-body="">
-<div class="brand"><span>HILtrip Quản trò</span><a href="/">Màn hình người chơi</a></div>
+<div class="brand"><span>HILtrip Quản trò</span><span><a href="/admin/mission">🎯 Điệp vụ</a> <a href="/">Người chơi</a></span></div>
 <h1>🕵️ Gián Điệp{% if sp.phase != 'END' %}, vòng {{ sp.round }}{% endif %}</h1>
 <p class="sub">{{ alive }} người còn trong cuộc · {{ nspy }} gián điệp{% if nwhite %}, {{ nwhite }} Mũ Trắng{% endif %} lúc chia</p>
 
@@ -1157,7 +1205,8 @@ def spy_ctx():
 
 def spy_index(username):
     sp = game_data["spy"]
-    body = render_template_string(SPY_BODY, me=username, mine=sp["roster"].get(username), **spy_ctx())
+    body = render_template_string(SPY_BODY, me=username, mine=sp["roster"].get(username),
+                                  mission_on=bool(game_data.get("mission")), **spy_ctx())
     return page("HILtrip Gián Điệp", body, "", "/?partial=1")
 
 
@@ -1302,6 +1351,599 @@ def spy_end():
             bump()
     return redirect(url_for('admin_panel'))
 
+
+# ================================================================ ĐIỆP VỤ VŨNG TÀU (chơi suốt chuyến đi)
+# {t} = tên mục tiêu. Nhiệm vụ nhẹ nhàng, không ép uống, không trêu chọc quá đà.
+MISSION_STAGES = [
+    {"key": "road",   "name": "Khởi hành",          "when": "8h, 28/11",      "icon": "🚗",
+     "tip": "Hai đoàn đang đi riêng, nhiệm vụ chặng này làm qua nhóm chat hoặc điện thoại."},
+    {"key": "umi",    "name": "Cà phê Umi+",        "when": "10h30, 28/11",   "icon": "☕",
+     "tip": "Hai đoàn vừa hội ngộ, tranh thủ lúc chào hỏi."},
+    {"key": "lau",    "name": "Lẩu cá đuối",        "when": "12h, 28/11",     "icon": "🍲",
+     "tip": "Bàn ăn đông người là chỗ dễ giăng bẫy nhất."},
+    {"key": "villa",  "name": "Villa và biển",      "when": "14h, 28/11",     "icon": "🏖️",
+     "tip": "Lúc nhận phòng, tắm biển, nghỉ ngơi."},
+    {"key": "cho",    "name": "Chợ Xóm Lưới",       "when": "16h, 28/11",     "icon": "🦀",
+     "tip": "Hai team đi chợ, mỗi team đều có thể có gián điệp."},
+    {"key": "tiec",   "name": "Tiệc nướng",         "when": "18h, 28/11",     "icon": "🍢",
+     "tip": "Chặng cuối trước giờ lật bài."},
+]
+
+MISSIONS = {
+    "road": [
+        "Khiến {t} gửi một sticker hình con vật vào nhóm chat chung.",
+        "Khiến {t} nhắn vào nhóm chat một câu có chữ “biển”.",
+        "Khiến {t} gửi một tấm ảnh đang trên đường vào nhóm chat.",
+        "Khiến {t} trả lời tin nhắn của bạn bằng đúng một chữ “Ok”.",
+        "Khiến {t} thả tim một tin nhắn của bạn trong nhóm chat.",
+        "Khiến {t} nhắn hoặc gọi hỏi bạn “tới đâu rồi?”.",
+        "Khiến {t} nhắn vào nhóm chat tên một món muốn ăn ở Vũng Tàu.",
+        "Khiến {t} gửi một biểu tượng mặt trời ☀️ vào nhóm chat.",
+        "Khiến {t} nhắn vào nhóm chat một câu có chữ “cà phê”.",
+        "Khiến {t} gửi một tin nhắn thoại cho bạn.",
+        "Khiến {t} nhắn hỏi bạn đã ăn sáng chưa.",
+        "Khiến {t} gửi vào nhóm chat ảnh đôi dép hoặc đôi giày đang mang.",
+    ],
+    "umi": [
+        "Khiến {t} gọi đúng món nước giống bạn.",
+        "Khiến {t} cho bạn nếm thử nước của họ.",
+        "Khiến {t} chụp ảnh ly nước của họ.",
+        "Khiến {t} đổi chỗ ngồi với bạn.",
+        "Khiến {t} khen view của quán.",
+        "Khiến {t} hỏi mật khẩu wifi của quán.",
+        "Khiến {t} nhận xét nước của họ ngọt hay không ngọt.",
+        "Khiến {t} chụp giùm bạn một tấm ảnh với biển phía sau.",
+        "Khiến {t} kể đoàn của họ đi đường có gì vui.",
+        "Khiến {t} chỉ cho bạn xem một tấm ảnh trong điện thoại của họ.",
+    ],
+    "lau": [
+        "Khiến {t} gắp đồ ăn vào chén bạn.",
+        "Khiến {t} rót nước cho bạn.",
+        "Khiến {t} khen nồi lẩu ngon.",
+        "Khiến {t} cụng ly với bạn hai lần.",
+        "Khiến {t} đưa giùm bạn chén nước chấm hoặc cái muỗng.",
+        "Khiến {t} nói chữ “cay”.",
+        "Khiến {t} đề nghị gọi thêm một món.",
+        "Khiến {t} chụp ảnh nồi lẩu.",
+        "Khiến {t} hỏi bạn “ăn no chưa?”.",
+        "Khiến {t} đưa giùm bạn khăn giấy.",
+    ],
+    "villa": [
+        "Khiến {t} chụp ảnh bạn đang tạo dáng ở hồ bơi hoặc bãi biển.",
+        "Khiến {t} giúp bạn mang một món đồ vào phòng.",
+        "Khiến {t} nhận xét về phòng của bạn.",
+        "Khiến {t} xuống nước cùng lúc với bạn.",
+        "Khiến {t} hỏi mượn bạn một món đồ (kem chống nắng, khăn, dép…).",
+        "Khiến {t} chỉ cho bạn thấy một con thuyền ngoài biển.",
+        "Khiến {t} viết hoặc vẽ gì đó trên cát.",
+        "Khiến {t} ngồi nghỉ cạnh bạn ít nhất 5 phút.",
+        "Khiến {t} khen villa đẹp.",
+        "Khiến {t} rủ bạn đi dạo biển.",
+    ],
+    "cho": [
+        "Khiến {t} hỏi giá một món hải sản.",
+        "Khiến {t} chọn giùm bạn một con hải sản.",
+        "Khiến {t} trả giá giùm bạn một món.",
+        "Khiến {t} cầm giùm bạn túi đồ chợ.",
+        "Khiến {t} giải thích cho bạn cách chọn hải sản tươi.",
+        "Khiến {t} chụp ảnh với một con cá, cua hoặc ghẹ.",
+        "Khiến {t} đề nghị mua thêm một món không có trong danh sách.",
+        "Khiến {t} nếm thử một món ăn vặt ở chợ.",
+        "Khiến {t} hỏi bạn “mua vậy đủ chưa?”.",
+        "Khiến {t} đọc to giá tiền trên một tấm bảng ở chợ.",
+    ],
+    "tiec": [
+        "Khiến {t} nướng giùm bạn một xiên.",
+        "Khiến {t} mời bạn ăn thử một miếng họ vừa nướng.",
+        "Khiến {t} hát theo một câu của bài đang mở.",
+        "Khiến {t} nâng ly và nói một câu chúc.",
+        "Khiến {t} khen món bạn nướng.",
+        "Khiến {t} kể một chuyện vui trong chuyến đi.",
+        "Khiến {t} lấy giùm bạn một lon nước.",
+        "Khiến {t} chụp ảnh cùng bạn bên bếp nướng.",
+        "Khiến {t} nhờ bạn lật giùm một xiên nướng.",
+        "Khiến {t} chấm thử nước sốt bạn pha.",
+    ],
+    "any": [
+        "Khiến {t} nói từ “tuyệt vời”.",
+        "Khiến {t} đưa giùm bạn một món đồ (điện thoại, ly nước, khăn giấy…).",
+        "Rủ {t} chụp chung một tấm selfie.",
+        "Khiến {t} hỏi bạn mấy giờ rồi.",
+        "Khiến {t} đập tay với bạn.",
+        "Khiến {t} kể tên món ăn họ thích nhất.",
+        "Khiến {t} nhắc đến tên một con vật.",
+        "Khiến {t} cười thành tiếng vì câu chuyện của bạn.",
+        "Khiến {t} đội thử nón hoặc đeo thử kính của bạn.",
+        "Khiến {t} đọc to một dòng chữ trên biển hiệu hoặc menu.",
+        "Khiến {t} chỉ đường hoặc chỉ chỗ cho bạn.",
+        "Khiến {t} hỏi bạn “thật không?”.",
+        "Khiến {t} kể về chuyến du lịch gần nhất của họ.",
+        "Khiến {t} nói tên một bài hát.",
+        "Khiến {t} giơ ngón cái với bạn.",
+        "Khiến {t} khen trang phục của bạn.",
+        "Khiến {t} chọn giùm bạn giữa hai lựa chọn.",
+        "Khiến {t} nói một câu tiếng Anh.",
+        "Khiến {t} dạy bạn một mẹo nhỏ (chụp ảnh, xếp đồ…).",
+        "Khiến {t} kể một kỷ niệm hồi đi học.",
+        "Khiến {t} hỏi bạn “ăn gì chưa?”.",
+        "Khiến {t} dùng từ “chill”.",
+        "Khiến {t} gọi tên bạn ba lần trong một chặng.",
+        "Khiến {t} khen ảnh bạn chụp.",
+    ],
+}
+
+# Nhiệm vụ riêng của Gián điệp: không có mục tiêu, tác động nhẹ lên cả nhóm
+SABOTAGE = {
+    "road": ["Khiến ít nhất 3 người gửi cùng một loại sticker vào nhóm chat.",
+             "Khiến ít nhất 2 người nhắn trong nhóm chat rằng họ đói bụng."],
+    "any": [
+        "Khiến cả bàn (ít nhất 4 người) cụng ly cùng một lúc.",
+        "Khiến 2 người khác đổi chỗ ngồi cho nhau.",
+        "Khiến ít nhất 3 người cùng tạo dáng chữ V trong một tấm ảnh.",
+        "Khiến một người gọi đúng món mà bạn gợi ý.",
+        "Khiến ít nhất 2 người hát cùng một bài.",
+        "Rủ được 3 người cùng uống một loại nước.",
+        "Khiến cả nhóm vỗ tay cùng một lúc.",
+        "Khiến 2 người tranh luận vui về một chủ đề bạn khơi ra (ví dụ: biển Vũng Tàu hay Nha Trang đẹp hơn).",
+        "Khiến ít nhất 3 người cùng nhìn lên trời một lúc.",
+        "Khiến cả đoàn chụp một tấm ảnh nhóm theo kiểu bạn đề xuất.",
+        "Khiến một người ngồi vào đúng chỗ bạn đã chọn sẵn cho họ.",
+        "Khiến ít nhất 3 người cùng nói “Vũng Tàu ơi!”.",
+    ],
+}
+
+PTS = {"done": 2, "sab": 3, "catch": 2, "caught": -1, "wrong": -1, "vote_ok": 2, "spy_free": 5}
+
+
+from markupsafe import Markup, escape
+
+
+def now_vn():
+    return datetime.now(VN_TZ).strftime("%H:%M %d/%m")
+
+
+def m_get():
+    return game_data.get("mission")
+
+
+def m_add_agents(m):
+    for name in game_data["players"]:
+        if name not in m["agents"]:
+            m["agents"][name] = {"role": "agent", "score": 0, "vote": None, "inbox": [], "used": []}
+
+
+def m_derange(names):
+    if len(names) < 2:
+        return {}
+    while True:
+        perm = names[:]
+        random.shuffle(perm)
+        if all(a != b for a, b in zip(names, perm)):
+            return dict(zip(names, perm))
+
+
+def m_pick(pool, used, taken):
+    fresh = [t for t in pool if t not in used and t not in taken]
+    if fresh:
+        return random.choice(fresh)
+    fresh = [t for t in pool if t not in used]
+    return random.choice(fresh or pool)
+
+
+def m_open_stage(m, idx):
+    m["stage"] = idx
+    m_add_agents(m)
+    key = MISSION_STAGES[idx]["key"]
+    names = list(m["agents"].keys())
+    targets = m_derange(names)
+    taken = set()
+    for name in names:
+        a = m["agents"][name]
+        pool = MISSIONS[key] if key == "road" else MISSIONS[key] + MISSIONS["any"]
+        text = m_pick(pool, a["used"], taken)
+        taken.add(text)
+        a["used"].append(text)
+        m["tasks"].append({"id": m["next_id"], "stage": idx, "owner": name, "target": targets.get(name),
+                           "text": text, "kind": "mission", "status": "open", "note": "", "at": ""})
+        m["next_id"] += 1
+        if a["role"] == "spy":
+            spool = SABOTAGE.get(key, []) + SABOTAGE["any"]
+            stext = m_pick(spool, a["used"], set())
+            a["used"].append(stext)
+            m["tasks"].append({"id": m["next_id"], "stage": idx, "owner": name, "target": None,
+                               "text": stext, "kind": "sab", "status": "open", "note": "", "at": ""})
+            m["next_id"] += 1
+
+
+def m_text(task):
+    """Nội dung nhiệm vụ, tên mục tiêu in đậm."""
+    parts = [escape(p) for p in task["text"].split("{t}")]
+    who = Markup("<b>%s</b>") % (task["target"] or "")
+    return Markup(who.join(parts))
+
+
+def m_notify(m, name, text):
+    a = m["agents"].get(name)
+    if a is not None:
+        a["inbox"].insert(0, {"at": now_vn(), "text": text})
+        del a["inbox"][8:]
+
+
+def m_spy_count(n):
+    return 1 if n <= 8 else (2 if n <= 12 else 3)
+
+
+MISSION_BODY = """
+<div data-phase="M-{{ m.phase if m else 'NONE' }}" data-game="m{{ m.started if m else '' }}" data-body="">
+<div class="brand"><span>HILtrip Điệp vụ</span><a href="/">Trò chơi</a></div>
+
+{% if not m %}
+  <h1>🎯 Điệp vụ Vũng Tàu</h1>
+  <p class="sub">Chưa bắt đầu. Quản trò sẽ mở điệp vụ lúc xuất phát, màn hình sẽ tự chuyển.</p>
+
+{% elif not me %}
+  <h1>🎯 Điệp vụ Vũng Tàu</h1>
+  <p class="sub">Vào trang chủ nhập tên trước đã. Nếu bạn đã chơi rồi, hãy nhập <b>đúng tên cũ</b> để giữ điểm.</p>
+  <a class="btn" href="/">Nhập tên</a>
+
+{% elif not a %}
+  <h1>🎯 Điệp vụ Vũng Tàu</h1>
+  <p class="sub">Bạn vào sau khi điệp vụ bắt đầu. Bạn sẽ có nhiệm vụ khi quản trò mở chặng tiếp theo.</p>
+
+{% elif m.phase == 'REVEAL' %}
+  <h1>🎉 Lật bài điệp vụ</h1>
+  <p class="sub">{{ m.result }}</p>
+  <div class="panel">
+    <h2>Gián điệp</h2>
+    <ul class="roster">{% for n in spies %}<li><span>🦹 {{ n }}</span><span class="{{ 'tag ok' if n in caught else 'tag dead' }}">{{ 'Bị bắt' if n in caught else 'Thoát' }}</span></li>{% endfor %}</ul>
+  </div>
+  <div class="panel">
+    <h2>Giải thưởng</h2>
+    <ul class="roster">{% for title, who in awards %}<li><span>{{ title }}</span><b>{{ who }}</b></li>{% endfor %}</ul>
+  </div>
+  <div class="panel">
+    <h2>Bảng điểm</h2>
+    <ol class="roster order">{% for n, ag in board %}<li class="{{ 'me' if n == me }}"><span>{{ n }}{% if ag.role == 'spy' %} 🦹{% endif %}</span><b>{{ ag.score }} điểm</b></li>{% endfor %}</ol>
+  </div>
+  {% for st in stages %}{% set ts = done_by_stage[loop.index0] %}{% if ts %}
+  <div class="panel">
+    <h2>{{ st.icon }} {{ st.name }}</h2>
+    <ul class="roster">{% for t in ts %}<li style="display:block">
+      <div><b>{{ t.owner }}</b>{% if t.kind == 'sab' %} 🦹{% endif %}: {{ t.html }}</div>
+      <div class="count">{% if t.status == 'done' %}✅ Hoàn thành{% else %}🚨 Bị {{ t.target }} bắt quả tang{% endif %}{% if t.note %}: “{{ t.note }}”{% endif %}</div>
+    </li>{% endfor %}</ul>
+  </div>
+  {% endif %}{% endfor %}
+
+{% else %}
+  {% if m.phase == 'VOTE' %}
+  <h1>🕵️ Truy tìm gián điệp</h1>
+  <p class="sub">Trong đoàn có {{ nspy }} gián điệp. Bầu cho người bạn nghi nhất, đoán đúng +{{ pts.vote_ok }} điểm.</p>
+  {% else %}
+  <h1>{{ stage.icon }} {{ stage.name }}</h1>
+  <p class="sub">Chặng {{ m.stage + 1 }}/{{ stages|length }}. {{ stage.tip }}</p>
+  {% endif %}
+
+  {% for msg in a.inbox[:2] %}<div class="note {{ 'bad' if '🚨' in msg.text else ('done' if '✅' in msg.text else '') }}" style="margin-bottom:10px"><span class="count">{{ msg.at }}</span> {{ msg.text }}</div>{% endfor %}
+
+  <button type="button" class="card-role {{ 'wolf' if a.role == 'spy' else 'guard' }}">
+    <span class="back">Chạm để xem vai và nhiệm vụ</span>
+    <span class="face">
+      <span class="icon">{{ '🦹' if a.role == 'spy' else '🕶️' }}</span>
+      <span class="rname" style="display:block">{{ 'Gián điệp' if a.role == 'spy' else 'Điệp viên' }}</span>
+      <span class="rhint">{% if a.role == 'spy' %}{% if mates %}Đồng bọn: {{ mates|join(', ') }}. {% endif %}Làm nhiệm vụ thật tự nhiên, đừng để ai nghi ngờ.{% else %}Làm nhiệm vụ thật tự nhiên. Cuối chuyến cả đoàn sẽ truy tìm gián điệp.{% endif %}
+      <br>Điểm của bạn: <b>{{ a.score }}</b></span>
+    </span>
+  </button>
+
+  {% if m.phase == 'PLAY' %}
+  <div class="secret">
+    {% for t in open_tasks %}
+    <div class="panel" style="margin-top:14px">
+      <h2>{{ stages[t.stage].icon }} {{ 'Nhiệm vụ gián điệp' if t.kind == 'sab' else 'Nhiệm vụ' }}{% if t.stage != m.stage %} <span class="count">· từ chặng {{ stages[t.stage].name }}</span>{% endif %}</h2>
+      <p style="margin:0 0 12px;font-size:18px">{{ t.html }}</p>
+      <form method="POST" action="/mission/done">
+        <input type="hidden" name="id" value="{{ t.id }}">
+        <input type="text" name="note" maxlength="120" placeholder="Kể ngắn cách bạn làm (tuỳ chọn)" autocomplete="off">
+        <button type="submit" class="{{ 'btn-wolf' if t.kind == 'sab' else 'btn-guard' }}">Đã hoàn thành (+{{ pts.sab if t.kind == 'sab' else pts.done }})</button>
+      </form>
+    </div>
+    {% else %}
+    <div class="note" style="margin-top:14px">Bạn đã xong hết nhiệm vụ. Chờ quản trò mở chặng tiếp theo nhé.</div>
+    {% endfor %}
+    {% if closed_tasks %}
+    <div class="panel" style="margin-top:14px">
+      <h2>Đã làm</h2>
+      <ul class="roster">{% for t in closed_tasks %}<li style="display:block"><div>{{ t.html }}</div>
+        <div class="count">{{ '✅ Hoàn thành' if t.status == 'done' else '🚨 Bị bắt quả tang' }}</div></li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="panel" style="margin-top:14px">
+    <h2>Có người đang giăng bẫy bạn?</h2>
+    <p class="sub" style="margin-bottom:12px">Chọn người bạn nghi đang làm nhiệm vụ nhắm vào bạn. Đúng +{{ pts.catch }}, sai {{ pts.wrong }}.</p>
+    <form method="POST" action="/mission/catch" data-confirm="Chắc chắn bắt quả tang người này? Sai sẽ bị trừ điểm.">
+      <select name="who">{% for n in others %}<option value="{{ n }}">{{ n }}</option>{% endfor %}</select>
+      <button type="submit" class="btn-wolf">🚨 Bắt quả tang</button>
+    </form>
+  </div>
+
+  {% elif m.phase == 'VOTE' %}
+  <div class="panel" style="margin-top:14px">
+    <form method="POST" action="/mission/vote">
+      <select name="who">{% for n in others %}<option value="{{ n }}" {{ 'selected' if a.vote == n }}>{{ n }}</option>{% endfor %}</select>
+      <button type="submit" class="btn-wolf">{{ 'Đổi phiếu' if a.vote else 'Bầu người này' }}</button>
+    </form>
+    {% if a.vote %}<div class="note done" style="margin-top:12px">Bạn đã bầu: {{ a.vote }}. Có thể đổi đến khi quản trò chốt.</div>{% endif %}
+  </div>
+  <p class="sub" style="margin-top:14px">Đã bầu: {{ voted }} / {{ total }} người.</p>
+  {% endif %}
+{% endif %}
+</div>
+"""
+
+MISSION_ADMIN = """
+<div data-phase="MA-{{ m.phase if m else 'NONE' }}" data-body="">
+<div class="brand"><span>HILtrip Quản trò</span><a href="/admin">Trò chơi</a></div>
+<h1>🎯 Điệp vụ Vũng Tàu</h1>
+
+{% if not m %}
+  <p class="sub">Trò chơi kéo dài cả chuyến đi. Mỗi người nhận vai bí mật (Điệp viên hoặc Gián điệp) và mỗi chặng một nhiệm vụ: khiến một người khác làm một việc nhỏ mà không bị phát hiện. Tối 28/11 cả đoàn truy tìm gián điệp và lật bài.</p>
+  <div class="panel">
+    <h2>Người tham gia <span class="count">· {{ total }} người, {{ spy_n }} gián điệp</span></h2>
+    <p class="sub" style="margin:0">Mọi người đã nhập tên ở trang chủ sẽ tham gia. Ai vào sau sẽ được thêm khi mở chặng tiếp theo, với vai Điệp viên.</p>
+  </div>
+  <div class="panel stack">
+    <form action="/admin/mission/start" method="POST" data-confirm="Bắt đầu điệp vụ? Mọi người sẽ nhận vai và nhiệm vụ chặng 1.">
+      <button type="submit" {{ 'disabled' if total < 4 }}>Bắt đầu điệp vụ (chặng 1: Khởi hành)</button></form>
+    {% if total < 4 %}<p class="count" style="margin:0">Cần ít nhất 4 người.</p>{% endif %}
+  </div>
+
+{% else %}
+  <p class="sub">Bạn cũng là người chơi: vai và nhiệm vụ của bạn nằm ở <a href="/mission" style="color:inherit">trang Điệp vụ</a>. Trang này không hiện nhiệm vụ, vai hay điểm của ai.</p>
+  <div class="panel">
+    <h2>Lộ trình</h2>
+    <ol class="roster order">{% for st in stages %}<li class="{{ 'me' if m.phase == 'PLAY' and loop.index0 == m.stage }}"><span>{{ st.icon }} {{ st.name }}</span>
+      <span class="count">{% if m.phase == 'PLAY' and loop.index0 == m.stage %}đang chơi{% elif loop.index0 < m.stage or m.phase != 'PLAY' %}xong{% else %}{{ st.when }}{% endif %}</span></li>{% endfor %}</ol>
+  </div>
+  <div class="panel">
+    <h2>Tiến độ</h2>
+    <ul class="roster">
+      <li><span>Người tham gia</span><b>{{ m.agents|length }}</b></li>
+      <li><span>Nhiệm vụ đã hoàn thành</span><b>{{ n_done }}</b></li>
+      <li><span>Lần bắt quả tang trúng</span><b>{{ n_caught }}</b></li>
+      {% if m.phase == 'VOTE' %}<li><span>Đã bầu gián điệp</span><b>{{ voted }} / {{ m.agents|length }}</b></li>{% endif %}
+    </ul>
+  </div>
+  <div class="panel stack">
+    {% if m.phase == 'PLAY' %}
+      {% if m.stage + 1 < stages|length %}{% set nx = stages[m.stage + 1] %}
+      <form action="/admin/mission/next" method="POST" data-confirm="Mở chặng {{ nx.name }}? Mọi người nhận nhiệm vụ mới, nhiệm vụ cũ chưa làm vẫn giữ.">
+        <button type="submit">Mở chặng tiếp: {{ nx.icon }} {{ nx.name }}</button></form>
+      {% endif %}
+      <form action="/admin/mission/vote" method="POST" data-confirm="Dừng nhận nhiệm vụ và mở biểu quyết truy tìm gián điệp?">
+        <button type="submit" class="{{ 'btn-wolf' if m.stage + 1 == stages|length else 'btn-ghost' }}">🕵️ Mở biểu quyết truy tìm gián điệp</button></form>
+    {% elif m.phase == 'VOTE' %}
+      <form action="/admin/mission/reveal" method="POST" data-confirm="Chốt phiếu và lật bài cho cả đoàn?">
+        <button type="submit" class="btn-wolf">🎉 Chốt phiếu và lật bài</button></form>
+    {% else %}
+      <a class="btn" href="/mission">Mở màn hình lật bài</a>
+    {% endif %}
+    <form action="/admin/mission/reset" method="POST" data-confirm="Xoá toàn bộ điệp vụ, mất hết điểm và nhiệm vụ?">
+      <button type="submit" class="btn-ghost">Xoá điệp vụ</button></form>
+  </div>
+{% endif %}
+</div>
+"""
+
+
+def m_reveal_ctx(m):
+    agents = m["agents"]
+    spies = [n for n, a in agents.items() if a["role"] == "spy"]
+    board = sorted(agents.items(), key=lambda kv: -kv[1]["score"])
+    done_by_stage = [[] for _ in MISSION_STAGES]
+    victims = {}
+    for t in m["tasks"]:
+        if t["status"] in ("done", "caught"):
+            done_by_stage[t["stage"]].append(dict(t, html=m_text(t)))
+        if t["status"] == "done" and t["target"]:
+            victims[t["target"]] = victims.get(t["target"], 0) + 1
+    awards = []
+    agents_only = [kv for kv in board if kv[1]["role"] == "agent"]
+    if agents_only:
+        awards.append(("🏆 Điệp viên xuất sắc", agents_only[0][0]))
+    spy_board = [kv for kv in board if kv[1]["role"] == "spy"]
+    if spy_board:
+        awards.append(("🦹 Gián điệp lì nhất", spy_board[0][0]))
+    if victims:
+        top = max(victims.items(), key=lambda kv: kv[1])
+        awards.append((f"😇 Bị “dụ” nhiều nhất ({top[1]} lần)", top[0]))
+    catches = {}
+    for t in m["tasks"]:
+        if t["status"] == "caught":
+            catches[t["target"]] = catches.get(t["target"], 0) + 1
+    if catches:
+        top = max(catches.items(), key=lambda kv: kv[1])
+        awards.append((f"👀 Mắt thần ({top[1]} lần bắt quả tang)", top[0]))
+    return dict(spies=spies, board=board, done_by_stage=done_by_stage, awards=awards,
+                caught=m.get("caught", []))
+
+
+@app.route('/mission')
+def mission_page():
+    m = m_get()
+    me = session.get('username')
+    a = m["agents"].get(me) if (m and me) else None
+    ctx = dict(m=m, me=me, a=a, stages=MISSION_STAGES, pts=PTS)
+    if m:
+        ctx["stage"] = MISSION_STAGES[m["stage"]]
+        ctx["others"] = [n for n in m["agents"] if n != me]
+        ctx["nspy"] = sum(1 for x in m["agents"].values() if x["role"] == "spy")
+        ctx["voted"] = sum(1 for x in m["agents"].values() if x["vote"])
+        ctx["total"] = len(m["agents"])
+        if a:
+            mine = [dict(t, html=m_text(t)) for t in m["tasks"] if t["owner"] == me]
+            ctx["open_tasks"] = [t for t in mine if t["status"] == "open"][::-1]
+            ctx["closed_tasks"] = [t for t in mine if t["status"] != "open"][::-1]
+            ctx["mates"] = [n for n, x in m["agents"].items() if x["role"] == "spy" and n != me] if a["role"] == "spy" else []
+        if m["phase"] == "REVEAL":
+            ctx.update(m_reveal_ctx(m))
+    body = render_template_string(MISSION_BODY, **ctx)
+    return page("HILtrip Điệp vụ", body, "", "/mission?partial=1")
+
+
+@app.route('/mission/done', methods=['POST'])
+def mission_done():
+    me = session.get('username')
+    with _lock:
+        m = m_get()
+        if m and m["phase"] == "PLAY" and me in m["agents"]:
+            try:
+                tid = int(request.form.get("id", -1))
+            except ValueError:
+                tid = -1
+            t = next((x for x in m["tasks"] if x["id"] == tid and x["owner"] == me and x["status"] == "open"), None)
+            if t:
+                t.update(status="done", note=(request.form.get("note") or "").strip()[:120], at=now_vn())
+                gain = PTS["sab"] if t["kind"] == "sab" else PTS["done"]
+                m["agents"][me]["score"] += gain
+                m_notify(m, me, f"✅ Đã ghi nhận nhiệm vụ, +{gain} điểm.")
+                bump()
+    return redirect(url_for('mission_page'))
+
+
+@app.route('/mission/catch', methods=['POST'])
+def mission_catch():
+    me = session.get('username')
+    who = request.form.get("who")
+    with _lock:
+        m = m_get()
+        if m and m["phase"] == "PLAY" and me in m["agents"] and who in m["agents"] and who != me:
+            hits = [t for t in m["tasks"] if t["owner"] == who and t["target"] == me
+                    and t["kind"] == "mission" and t["status"] == "open"]
+            if hits:
+                t = hits[-1]
+                t.update(status="caught", at=now_vn())
+                m["agents"][me]["score"] += PTS["catch"]
+                m["agents"][who]["score"] += PTS["caught"]
+                m_notify(m, me, f"✅ Chính xác! {who} đang giăng bẫy bạn. +{PTS['catch']} điểm.")
+                m_notify(m, who, f"🚨 {me} đã bắt quả tang bạn, nhiệm vụ “{t['text'].replace('{t}', me)}” bị huỷ. {PTS['caught']} điểm.")
+            else:
+                m["agents"][me]["score"] += PTS["wrong"]
+                m_notify(m, me, f"🚨 Sai rồi, {who} không có nhiệm vụ nào đang nhắm vào bạn. {PTS['wrong']} điểm.")
+            bump()
+    return redirect(url_for('mission_page'))
+
+
+@app.route('/mission/vote', methods=['POST'])
+def mission_vote():
+    me = session.get('username')
+    who = request.form.get("who")
+    with _lock:
+        m = m_get()
+        if m and m["phase"] == "VOTE" and me in m["agents"] and who in m["agents"] and who != me:
+            m["agents"][me]["vote"] = who
+            bump()
+    return redirect(url_for('mission_page'))
+
+
+@app.route('/admin/mission')
+def mission_admin():
+    m = m_get()
+    ctx = dict(m=m, stages=MISSION_STAGES, total=len(game_data["players"]),
+               spy_n=m_spy_count(len(game_data["players"])))
+    if m:
+        ctx["n_done"] = sum(1 for t in m["tasks"] if t["status"] == "done")
+        ctx["n_caught"] = sum(1 for t in m["tasks"] if t["status"] == "caught")
+        ctx["voted"] = sum(1 for x in m["agents"].values() if x["vote"])
+    body = render_template_string(MISSION_ADMIN, **ctx)
+    return page("HILtrip Quản trò", body, "", "/admin/mission?partial=1")
+
+
+@app.route('/admin/mission/start', methods=['POST'])
+def mission_start():
+    with _lock:
+        if not m_get() and len(game_data["players"]) >= 4:
+            m = {"phase": "PLAY", "stage": 0, "agents": {}, "tasks": [], "next_id": 1,
+                 "started": now_vn(), "result": "", "caught": []}
+            m_add_agents(m)
+            names = list(m["agents"])
+            for n in random.sample(names, m_spy_count(len(names))):
+                m["agents"][n]["role"] = "spy"
+            m_open_stage(m, 0)
+            game_data["mission"] = m
+            bump()
+    return redirect(url_for('mission_admin'))
+
+
+@app.route('/admin/mission/next', methods=['POST'])
+def mission_next():
+    with _lock:
+        m = m_get()
+        if m and m["phase"] == "PLAY" and m["stage"] + 1 < len(MISSION_STAGES):
+            m_open_stage(m, m["stage"] + 1)
+            for n in m["agents"]:
+                m_notify(m, n, f"📍 Đã mở chặng {MISSION_STAGES[m['stage']]['name']}, bạn có nhiệm vụ mới.")
+            bump()
+    return redirect(url_for('mission_admin'))
+
+
+@app.route('/admin/mission/vote', methods=['POST'])
+def mission_open_vote():
+    with _lock:
+        m = m_get()
+        if m and m["phase"] == "PLAY":
+            m["phase"] = "VOTE"
+            for x in m["agents"].values():
+                x["vote"] = None
+            bump()
+    return redirect(url_for('mission_admin'))
+
+
+@app.route('/admin/mission/reveal', methods=['POST'])
+def mission_reveal():
+    with _lock:
+        m = m_get()
+        if m and m["phase"] == "VOTE":
+            agents = m["agents"]
+            spies = [n for n, x in agents.items() if x["role"] == "spy"]
+            counts = {}
+            for x in agents.values():
+                if x["vote"]:
+                    counts[x["vote"]] = counts.get(x["vote"], 0) + 1
+            # Gián điệp bị bắt nếu lọt vào nhóm nhiều phiếu nhất (số chỗ = số gián điệp)
+            ranked = sorted(counts.values(), reverse=True)
+            cut = ranked[len(spies) - 1] if len(ranked) >= len(spies) else (ranked[-1] if ranked else 1)
+            caught = [s for s in spies if counts.get(s, 0) >= max(cut, 1)]
+            for x in agents.values():
+                if x["vote"] in spies:
+                    x["score"] += PTS["vote_ok"]
+            for s in spies:
+                if s not in caught:
+                    agents[s]["score"] += PTS["spy_free"]
+            m["caught"] = caught
+            if len(caught) == len(spies):
+                m["result"] = "Cả đoàn đã lật mặt toàn bộ gián điệp!"
+            elif caught:
+                m["result"] = f"Bắt được {len(caught)}/{len(spies)} gián điệp. Kẻ còn lại đã cao chạy xa bay!"
+            else:
+                m["result"] = "Không bắt được gián điệp nào. Phe gián điệp thắng lớn!"
+            m["phase"] = "REVEAL"
+            bump()
+    return redirect(url_for('mission_admin'))
+
+
+@app.route('/admin/mission/reset', methods=['POST'])
+def mission_reset():
+    with _lock:
+        game_data["mission"] = None
+        bump()
+    return redirect(url_for('mission_admin'))
+
+
+# nạp trạng thái đã lưu (nếu có DATABASE_URL)
+db_load()
 
 
 if __name__ == '__main__':
