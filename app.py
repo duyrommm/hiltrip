@@ -21,8 +21,8 @@ game_data = {
 
 ROLES = {
     "Wolf":     {"name": "Ma Sói",   "icon": "🐺", "cls": "wolf",  "hint": "Đêm nay chọn một người để cắn."},
-    "Seer":     {"name": "Tiên Tri", "icon": "🔮", "cls": "seer",  "hint": "Nhắm mắt, chờ quản trò gọi dậy."},
-    "Guard":    {"name": "Bảo Vệ",   "icon": "🛡️", "cls": "guard", "hint": "Nhắm mắt, chờ quản trò gọi dậy."},
+    "Seer":     {"name": "Tiên Tri", "icon": "🔮", "cls": "seer",  "hint": "Mỗi đêm soi một người, biết người đó có phải Sói không."},
+    "Guard":    {"name": "Bảo Vệ",   "icon": "🛡️", "cls": "guard", "hint": "Mỗi đêm che chở một người khỏi Sói. Không bảo vệ cùng một người hai đêm liền."},
     "Villager": {"name": "Dân Làng", "icon": "🧑‍🌾", "cls": "villa", "hint": "Nhắm mắt ngủ và chờ trời sáng."},
 }
 
@@ -106,6 +106,8 @@ button,.btn{
 button:active{transform:translateY(1px)}
 :focus-visible{outline:3px solid var(--seer);outline-offset:2px}
 .btn-wolf{background:var(--wolf);color:#fff}
+.btn-seer{background:var(--seer);color:#fff}
+.btn-guard{background:var(--guard);color:#fff}
 .btn-ghost{background:transparent;color:var(--mist);border:1px solid var(--line)}
 .roster{list-style:none;margin:0;padding:0}
 .roster li{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
@@ -263,16 +265,53 @@ PLAYER_BODY = """
     <div class="note bad" style="margin-top:14px">Bạn đã bị loại. Hãy giữ im lặng và quan sát.</div>
   {% elif info and info.role == 'Wolf' %}
     <div class="panel secret" style="margin-top:14px">
+    {% if mates %}<p class="sub" style="margin-bottom:12px">Đồng bọn: <b class="r-wolf">{{ mates|join(', ') }}</b></p>{% endif %}
     {% if not info.acted %}
       <h2>Cắn ai đêm nay?</h2>
       <form method="POST" action="/action">
         <select name="target">
-          {% for p, i in players.items() %}{% if p != me and i.alive and i.role != 'Wolf' %}<option value="{{ p }}">{{ p }}</option>{% endif %}{% endfor %}
+          {% for p, i in players.items() %}{% if p != me and i.role and i.alive and i.role != 'Wolf' %}<option value="{{ p }}">{{ p }}</option>{% endif %}{% endfor %}
         </select>
         <button type="submit" class="btn-wolf">Chốt mục tiêu</button>
       </form>
     {% else %}
       <div class="note done">Đã chốt: {{ info.target }}. Chờ trời sáng.</div>
+    {% endif %}
+    </div>
+  {% elif info and info.role == 'Seer' %}
+    <div class="panel secret" style="margin-top:14px">
+    {% if not info.acted %}
+      <h2>Soi ai đêm nay?</h2>
+      <form method="POST" action="/action">
+        <select name="target">
+          {% for p, i in players.items() %}{% if p != me and i.role and i.alive %}<option value="{{ p }}">{{ p }}{% if p in seen %} (đã soi){% endif %}</option>{% endif %}{% endfor %}
+        </select>
+        <button type="submit" class="btn-seer">Soi người này</button>
+      </form>
+    {% else %}
+      {% if seen[info.target] %}<div class="note bad">🐺 {{ info.target }} là Sói!</div>
+      {% else %}<div class="note done">{{ info.target }} không phải Sói.</div>{% endif %}
+    {% endif %}
+    {% if seen %}
+      <h2 style="margin-top:16px">Đã soi</h2>
+      <ul class="roster">
+        {% for p, w in seen.items() %}<li><span>{{ p }}</span>{% if w %}<span class="tag dead">Sói</span>{% else %}<span class="tag ok">Không phải Sói</span>{% endif %}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    </div>
+  {% elif info and info.role == 'Guard' %}
+    <div class="panel secret" style="margin-top:14px">
+    {% if not info.acted %}
+      <h2>Bảo vệ ai đêm nay?</h2>
+      <form method="POST" action="/action">
+        <select name="target">
+          {% for p, i in players.items() %}{% if i.role and i.alive and p != info.last %}<option value="{{ p }}">{{ p }}{% if p == me %} (chính mình){% endif %}</option>{% endif %}{% endfor %}
+        </select>
+        <button type="submit" class="btn-guard">Bảo vệ người này</button>
+      </form>
+      {% if info.last %}<p class="sub" style="margin:10px 0 0">Đêm qua bạn đã bảo vệ {{ info.last }} nên đêm nay không chọn lại được.</p>{% endif %}
+    {% else %}
+      <div class="note done">Đêm nay bạn bảo vệ: {{ info.target }}.</div>
     {% endif %}
     </div>
   {% endif %}
@@ -346,6 +385,9 @@ def index():
         role=ROLES.get(info["role"]) if info and info["role"] else None,
         roles=ROLES, night_result=game_data["night_result"], body_cls=body_cls,
         vote_result=game_data["vote_result"], winner=game_data["winner"],
+        seen=(info or {}).get("seen") or {},
+        mates=[n for n, i in players.items() if i["role"] == "Wolf" and n != username]
+              if info and info["role"] == "Wolf" else [],
         voted=sum(1 for i in players.values() if i["role"] and i["alive"] and i.get("vote")),
         alive=sum(1 for i in players.values() if i["role"] and i["alive"]),
         total=sum(1 for i in players.values() if i["role"]))
@@ -382,9 +424,22 @@ def action():
     username = session.get('username')
     target = request.form.get('target')
     with _lock:
-        me = game_data["players"].get(username)
-        if (me and game_data["phase"] == "NIGHT" and me["role"] == "Wolf" and me["alive"]
-                and target in game_data["players"]):
+        players = game_data["players"]
+        me = players.get(username)
+        t = players.get(target)
+        if not (me and t and game_data["phase"] == "NIGHT" and me["alive"] and not me["acted"]
+                and t["role"] and t["alive"]):
+            return redirect(url_for('index'))
+        ok = False
+        if me["role"] == "Wolf":
+            ok = t["role"] != "Wolf"
+        elif me["role"] == "Seer":
+            ok = target != username
+            if ok:
+                me.setdefault("seen", {})[target] = (t["role"] == "Wolf")
+        elif me["role"] == "Guard":
+            ok = target != me.get("last")
+        if ok:
             me["target"] = target
             me["acted"] = True
             bump()
@@ -416,9 +471,14 @@ ADMIN_BODY = """
 
 {% if phase == 'NIGHT' %}
 <div class="panel">
-  <h2>Ma Sói đã chốt</h2>
-  {% if wolves_done == wolves %}<div class="note done">Đủ {{ wolves_done }}/{{ wolves }}. Có thể gọi trời sáng.</div>
-  {% else %}<div class="note">{{ wolves_done }}/{{ wolves }} sói đã chọn mục tiêu…</div>{% endif %}
+  <h2>Hành động đêm nay</h2>
+  <ul class="roster">
+    {% for r in night_status %}<li><span>{{ r.label }}</span>
+      {% if r.state == 'done' %}<span class="tag ok">Xong</span>
+      {% elif r.state == 'dead' %}<span class="count">đã chết</span>
+      {% else %}<span class="count">đang chọn…</span>{% endif %}</li>{% endfor %}
+  </ul>
+  {% if night_ready %}<div class="note done" style="margin-top:12px">Mọi người đã chọn xong. Có thể gọi trời sáng.</div>{% endif %}
 </div>
 {% endif %}
 
@@ -487,6 +547,7 @@ def admin_panel():
         roles=ROLES, winner=game_data["winner"], vote_result=game_data["vote_result"],
         voted_today=game_data["voted_today"], tally=tally_votes(),
         voted=sum(1 for i in voters if i.get("vote")),
+        night_status=night_status(), night_ready=all(r["state"] != "wait" for r in night_status()),
         total=len(players), alive=sum(1 for i in players.values() if i["role"] and i["alive"]),
         wolves=len(wolves), wolves_done=sum(1 for i in wolves if i["acted"]))
     return page("HILtrip Quản trò", body, body_cls, "/admin?partial=1")
@@ -509,7 +570,7 @@ def admin_assign():
             roles = ["Wolf", "Wolf", "Seer", "Guard"] + ["Villager"] * (total - 4)
         random.shuffle(roles)
         for i, uname in enumerate(usernames):
-            game_data["players"][uname].update(role=roles[i], alive=True, target=None, acted=False, vote=None)
+            game_data["players"][uname].update(role=roles[i], alive=True, target=None, acted=False, vote=None, seen={}, last=None)
         game_data.update(phase="NIGHT", night_result="", vote_result="", voted_today=False, winner=None)
         bump()
     return redirect(url_for('admin_panel'))
@@ -537,6 +598,15 @@ def admin_next_phase(phase):
             picks = [i["target"] for i in game_data["players"].values()
                      if i["role"] == "Wolf" and i["alive"] and i["target"] in game_data["players"]]
             wolf_target = max(picks, key=picks.count) if picks else None
+            guarded = None
+            for i in game_data["players"].values():
+                if i["role"] == "Guard" and i["alive"] and i["acted"]:
+                    guarded = i["target"]
+                    i["last"] = i["target"]          # đêm sau không được bảo vệ lại người này
+                elif i["role"] == "Guard":
+                    i["last"] = None
+            if wolf_target and wolf_target == guarded:
+                wolf_target = None               # được Bảo Vệ che chở → không ai chết, không tiết lộ
             if wolf_target:
                 game_data["players"][wolf_target]["alive"] = False
                 game_data["night_result"] = f"Đêm qua Sói đã ghé thăm. {wolf_target} không qua khỏi."
@@ -549,6 +619,21 @@ def admin_next_phase(phase):
             game_data["phase"] = "END"
         bump()
     return redirect(url_for('admin_panel'))
+
+
+def night_status():
+    rows = []
+    ps = [i for i in game_data["players"].values() if i["role"]]
+    wolves = [i for i in ps if i["role"] == "Wolf" and i["alive"]]
+    rows.append({"label": f"🐺 Ma Sói ({sum(1 for i in wolves if i['acted'])}/{len(wolves)})",
+                 "state": "done" if all(i["acted"] for i in wolves) else "wait"})
+    for role, label in (("Seer", "🔮 Tiên Tri"), ("Guard", "🛡️ Bảo Vệ")):
+        found = [i for i in ps if i["role"] == role]
+        if not found:
+            continue
+        i = found[0]
+        rows.append({"label": label, "state": "dead" if not i["alive"] else ("done" if i["acted"] else "wait")})
+    return rows
 
 
 def tally_votes():
