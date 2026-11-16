@@ -18,6 +18,8 @@ game_data = {
     "winner": None,           # None | "Wolf" | "Village"
     "hunter": None,           # tên Thợ Săn đang chờ bắn
     "hunter_ctx": "night",    # Thợ Săn chết vì đêm ("night") hay vì treo cổ ("vote")
+    "game_id": 0,             # tăng mỗi ván mới → lá bài úp lại
+    "spy": None,              # trạng thái ván Truy Tìm Gián Điệp
     "version": 0,             # tăng mỗi khi trạng thái đổi → trình duyệt tự cập nhật
 }
 
@@ -30,6 +32,20 @@ ROLES = {
     "Idiot":    {"name": "Thằng Ngốc", "icon": "🤡", "cls": "idiot", "hint": "Bị treo cổ thì lật bài và sống tiếp, nhưng mất quyền bỏ phiếu."},
     "Villager": {"name": "Dân Làng", "icon": "🧑‍🌾", "cls": "villa", "hint": "Nhắm mắt ngủ và chờ trời sáng."},
 }
+
+
+SPY_START_FORM = """
+<form action="/admin/spy/start" method="POST" class="stack">
+  <details class="note"><summary>Tự nhập cặp từ (không bắt buộc)</summary>
+    <div style="margin-top:12px">
+      <input type="text" name="civ" maxlength="40" placeholder="Từ của Dân, ví dụ: Cà phê" autocomplete="off">
+      <input type="text" name="spy" maxlength="40" placeholder="Từ của Gián điệp, ví dụ: Trà sữa" autocomplete="off">
+      <p class="count" style="margin:0">Để trống thì app tự bốc ngẫu nhiên trong {{ npairs }} cặp có sẵn.</p>
+    </div>
+  </details>
+  <button type="submit" class="btn-seer" {{ 'disabled' if total < 3 }}>Bắt đầu Truy Tìm Gián Điệp</button>
+</form>
+"""
 
 
 def bump():
@@ -187,6 +203,9 @@ body.revealed .secret{display:block}
 .card-role.idiot.open{border-color:var(--idiot)}.idiot .rname{color:var(--idiot)}
 .r-witch{color:var(--witch)} .r-hunter{color:var(--hunter)} .r-idiot{color:var(--idiot)}
 .btn-witch{background:var(--witch);color:#fff}
+details summary{cursor:pointer;font-weight:500}
+.order{counter-reset:o}
+.order li span:first-child::before{counter-increment:o;content:counter(o) ".";display:inline-block;min-width:28px;color:var(--mist)}
 .check{display:flex;gap:10px;align-items:center;margin-bottom:12px;font-weight:500}
 .check input{width:22px;height:22px;accent-color:var(--witch)}
 .r-wolf{color:var(--wolf)} .r-seer{color:var(--seer)} .r-guard{color:var(--guard)} .r-villa{color:var(--villa)}
@@ -238,12 +257,14 @@ body.revealed .secret{display:block}
     }).then(function(html){
       if (html === null) return;
       var phaseBefore = (app.querySelector('[data-phase]')||{}).dataset;
+      var gameBefore = phaseBefore && phaseBefore.game;
       app.innerHTML = html;
       var phaseAfter = (app.querySelector('[data-phase]')||{}).dataset;
       if (phaseBefore && phaseAfter && phaseBefore.phase !== phaseAfter.phase){
         app.classList.remove('flash'); void app.offsetWidth; app.classList.add('flash');
         if (phaseAfter.phase === 'NIGHT') opened = false;
       }
+      if (phaseAfter && gameBefore !== undefined && phaseAfter.game !== gameBefore) opened = false;
       var s2 = app.querySelector('select');
       if (s2 && keep !== null) { s2.value = keep; if (s2.value !== keep) s2.selectedIndex = 0; }
       var cb2 = app.querySelector('input[type=checkbox]'); if (cb2 && keepCb !== null) cb2.checked = keepCb;
@@ -276,7 +297,7 @@ def page(title, body, body_cls, partial_url):
 
 # ---------------------------------------------------------------- màn hình người chơi
 PLAYER_BODY = """
-<div data-phase="{{ phase }}" data-body="{{ body_cls }}">
+<div data-phase="{{ phase }}" data-game="{{ game_id }}" data-body="{{ body_cls }}">
 <div class="brand"><span>HILtrip Ma Sói</span>
   {% if me %}<a href="/logout">Thoát</a>{% endif %}</div>
 
@@ -291,7 +312,7 @@ PLAYER_BODY = """
 
 {% elif phase == 'LOBBY' %}
   <h1>Chào {{ me }}</h1>
-  <p class="sub">Đang chờ quản trò chia vai. Màn hình sẽ tự chuyển.</p>
+  <p class="sub">Đang chờ quản trò chọn trò chơi. Màn hình sẽ tự chuyển.</p>
   <div class="panel">
     <h2>Trong phòng <span class="count">· {{ players|length }} người</span></h2>
     <ul class="roster">
@@ -470,12 +491,15 @@ def index():
     if username and username not in game_data["players"]:
         session.pop('username', None)
         username = None
+    if username and game_data["phase"] == "SPY":
+        return spy_index(username)
     info = game_data["players"].get(username) if username else None
     phase = game_data["phase"]
     body_cls = "day" if phase in ("DAY", "VOTE", "HUNTER", "END") else ""
     players = game_data["players"]
     body = render_template_string(
         PLAYER_BODY, phase=phase, me=username, info=info, players=players,
+        game_id=game_data["game_id"],
         role=ROLES.get(info["role"]) if info and info["role"] else None,
         roles=ROLES, night_result=game_data["night_result"], body_cls=body_cls,
         vote_result=game_data["vote_result"], winner=game_data["winner"],
@@ -606,7 +630,7 @@ PHASE_VI = {"LOBBY": "Phòng chờ", "NIGHT": "🌙 Đêm", "DAY": "☀️ Ngày
             "HUNTER": "🏹 Thợ Săn", "END": "Hết ván"}
 
 ADMIN_BODY = """
-<div data-phase="{{ phase }}" data-body="{{ body_cls }}">
+<div data-phase="{{ phase }}" data-game="{{ game_id }}" data-body="{{ body_cls }}">
 <div class="brand"><span>HILtrip Quản trò</span><a href="/">Màn hình người chơi</a></div>
 <h1>{{ phase_vi[phase] }}</h1>
 <p class="sub">{{ total }} người trong phòng{% if phase != 'LOBBY' %} · còn sống {{ alive }}{% endif %}</p>
@@ -661,7 +685,8 @@ ADMIN_BODY = """
 
 <div class="panel stack">
   {% if phase in ('LOBBY', 'END') %}
-  <form action="/admin/assign" method="POST"><button type="submit" {{ 'disabled' if total < 3 }}>Chia vai và bắt đầu đêm</button></form>
+  <form action="/admin/assign" method="POST"><button type="submit" {{ 'disabled' if total < 3 }}>🐺 Chơi Ma Sói: chia vai, bắt đầu đêm</button></form>
+  """ + SPY_START_FORM.replace("Bắt đầu Truy Tìm Gián Điệp", "🕵️ Chơi Truy Tìm Gián Điệp") + """
   {% if total < 3 %}<p class="count" style="margin:0">Cần ít nhất 3 người.</p>{% endif %}
   {% elif phase == 'NIGHT' %}
   <form action="/admin/next_phase/DAY" method="POST"><button type="submit">Gọi trời sáng</button></form>
@@ -686,6 +711,8 @@ ADMIN_BODY = """
 
 @app.route('/admin')
 def admin_panel():
+    if game_data["phase"] == "SPY":
+        return spy_admin()
     players = game_data["players"]
     phase = game_data["phase"]
     body_cls = "day" if phase in ("DAY", "VOTE", "HUNTER", "END") else ""
@@ -693,12 +720,14 @@ def admin_panel():
     voters = [i for i in players.values() if can_vote(i)]
     body = render_template_string(
         ADMIN_BODY, phase=phase, phase_vi=PHASE_VI, players=players, body_cls=body_cls,
+        game_id=game_data["game_id"],
         roles=ROLES, winner=game_data["winner"], vote_result=game_data["vote_result"],
         voted_today=game_data["voted_today"], tally=tally_votes(),
         voted=sum(1 for i in voters if i.get("vote")), voters=len(voters),
         night_result=game_data["night_result"], hunter=game_data["hunter"],
         night_status=night_status(), night_ready=all(r["state"] in ("done", "dead") for r in night_status()),
-        total=len(players), alive=sum(1 for i in players.values() if i["role"] and i["alive"]),
+        total=len(players), npairs=len(WORD_PAIRS),
+        alive=sum(1 for i in players.values() if i["role"] and i["alive"]),
         wolves=len(wolves), wolves_done=sum(1 for i in wolves if i["acted"]))
     return page("HILtrip Quản trò", body, body_cls, "/admin?partial=1")
 
@@ -728,6 +757,7 @@ def admin_assign():
             game_data["players"][uname].update(role=roles[i], alive=True, target=None, acted=False, vote=None, seen={}, last=None,
                                                  revealed=False, heal=True, poison=True, save=False, kill=None)
         game_data.update(phase="NIGHT", night_result="", vote_result="", voted_today=False, winner=None, hunter=None)
+        game_data["game_id"] += 1
         bump()
     return redirect(url_for('admin_panel'))
 
@@ -874,9 +904,404 @@ def admin_skip_hunter():
 def admin_reset():
     with _lock:
         game_data.update(phase="LOBBY", players={}, night_result="", vote_result="",
-                         voted_today=False, winner=None, hunter=None)
+                         voted_today=False, winner=None, hunter=None, spy=None)
         bump()
     return redirect(url_for('admin_panel'))
+
+
+# ================================================================ TRUY TÌM GIÁN ĐIỆP
+import unicodedata
+
+WORD_PAIRS = [
+    ("Cà phê", "Trà sữa"), ("Bánh mì", "Bánh bao"), ("Phở", "Bún bò"), ("Biển", "Hồ bơi"),
+    ("Núi", "Đồi"), ("Mèo", "Chó"), ("Xe máy", "Xe đạp"), ("Điện thoại", "Máy tính bảng"),
+    ("Facebook", "Instagram"), ("Zalo", "Messenger"), ("Bia", "Rượu"), ("Karaoke", "Quán bar"),
+    ("Tết", "Trung thu"), ("Áo dài", "Áo bà ba"), ("Nón lá", "Mũ bảo hiểm"), ("Sầu riêng", "Mít"),
+    ("Xoài", "Đu đủ"), ("Dưa hấu", "Thanh long"), ("Gà rán", "Gà nướng"), ("Lẩu", "Đồ nướng"),
+    ("Bóng đá", "Bóng chuyền"), ("Cầu lông", "Tennis"), ("Bơi lội", "Lặn biển"), ("Máy bay", "Tàu hoả"),
+    ("Khách sạn", "Homestay"), ("Đà Lạt", "Sa Pa"), ("Phú Quốc", "Nha Trang"), ("Netflix", "YouTube"),
+    ("Shopee", "Lazada"), ("Grab", "Taxi"), ("Sếp", "Đồng nghiệp"), ("Họp", "Hội thảo"),
+    ("Excel", "Google Sheets"), ("Lương", "Thưởng"), ("Nghỉ phép", "Nghỉ lễ"), ("Cơm tấm", "Cơm gà"),
+    ("Trà đá", "Nước mía"), ("Kem", "Sữa chua"), ("Bánh tráng trộn", "Gỏi cuốn"), ("Hủ tiếu", "Mì Quảng"),
+    ("Chè", "Tào phớ"), ("Bánh xèo", "Bánh khọt"), ("Vịt", "Ngỗng"), ("Hổ", "Sư tử"),
+    ("Bác sĩ", "Y tá"), ("Giáo viên", "Gia sư"), ("Ca sĩ", "Diễn viên"), ("Son môi", "Phấn má"),
+    ("Ô", "Áo mưa"), ("Dép", "Giày"), ("Gối", "Chăn"), ("Tủ lạnh", "Tủ đông"),
+    ("Máy giặt", "Máy rửa bát"), ("Mặt trăng", "Mặt trời"), ("Mưa", "Bão"), ("Lửa trại", "Pháo hoa"),
+    ("Lều", "Võng"), ("Kính râm", "Kính cận"), ("Nhẫn", "Dây chuyền"), ("Đám cưới", "Đám hỏi"),
+    ("Sinh nhật", "Kỷ niệm"), ("Ma", "Zombie"), ("Ông già Noel", "Táo quân"), ("Bánh chưng", "Bánh tét"),
+]
+
+SPY_ROLES = {
+    "civ":   {"name": "Dân",       "icon": "🏡", "cls": "villa"},
+    "spy":   {"name": "Gián điệp", "icon": "🕵️", "cls": "wolf"},
+    "white": {"name": "Mũ Trắng",  "icon": "🎩", "cls": "seer"},
+}
+
+
+def norm(text):
+    t = unicodedata.normalize("NFD", (text or "").lower().replace("đ", "d"))
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return " ".join("".join(c if c.isalnum() else " " for c in t).split())
+
+
+def spy_new_order(sp):
+    alive = [n for n, i in sp["roster"].items() if i["alive"]]
+    random.shuffle(alive)
+    if len(alive) > 1 and sp["roster"][alive[0]]["role"] == "white":   # Mũ Trắng không nói đầu
+        alive[0], alive[1] = alive[1], alive[0]
+    sp["order"] = alive
+
+
+def spy_check_win(sp):
+    alive = [i for i in sp["roster"].values() if i["alive"]]
+    civ = sum(1 for i in alive if i["role"] == "civ")
+    spies = sum(1 for i in alive if i["role"] == "spy")
+    imp = len(alive) - civ
+    if imp == 0:
+        sp["winner"] = "civ"
+    elif civ <= imp:
+        sp["winner"] = "spy" if spies else "white"
+    else:
+        return False
+    reason = {"civ": "Dân đã tìm ra hết kẻ trà trộn!",
+              "spy": "Gián điệp đã trụ lại đến cuối!",
+              "white": "Mũ Trắng đã trụ lại đến cuối!"}[sp["winner"]]
+    sp["result"] = (sp["result"] + " " + reason).strip()
+    sp["phase"] = "END"
+    return True
+
+
+def spy_next_round(sp):
+    if not spy_check_win(sp):
+        sp["round"] += 1
+        for i in sp["roster"].values():
+            i["vote"] = None
+        spy_new_order(sp)
+        sp["phase"] = "DESC"
+
+
+def spy_tally(sp):
+    alive = {n for n, i in sp["roster"].items() if i["alive"]}
+    counts = {}
+    for n in alive:
+        v = sp["roster"][n]["vote"]
+        if v in alive:
+            counts[v] = counts.get(v, 0) + 1
+    return sorted(counts.items(), key=lambda kv: -kv[1])
+
+
+
+SPY_CARD = """
+<button type="button" class="card-role {{ 'seer' if mine.role == 'white' else 'villa' }}">
+  <span class="back">Chạm để xem từ khoá</span>
+  <span class="face">
+  {% if mine.role == 'white' %}
+    <span class="icon">🎩</span><span class="rname" style="display:block">Mũ Trắng</span>
+    <span class="rhint">Bạn không có từ khoá. Nghe mọi người rồi mô tả thật khéo để không bị lộ.</span>
+  {% else %}
+    <span class="icon">🔑</span><span class="rname" style="display:block">{{ mine.word }}</span>
+    <span class="rhint">Từ khoá của bạn. Có thể bạn chính là Gián điệp mà không biết!</span>
+  {% endif %}
+  </span>
+</button>
+"""
+
+SPY_BODY = """
+<div data-phase="SPY-{{ sp.phase }}" data-game="{{ game_id }}" data-body="">
+<div class="brand"><span>HILtrip Gián Điệp</span><a href="/logout">Thoát</a></div>
+
+{% if not mine %}
+  <h1>🕵️ Đang có ván Gián Điệp</h1>
+  <p class="sub">Bạn vào sau khi chia từ nên ván này chỉ xem. Chờ ván sau nhé.</p>
+
+{% elif sp.phase == 'END' %}
+  <h1>{% if sp.winner == 'civ' %}🏡 Dân thắng{% elif sp.winner == 'spy' %}🕵️ Gián điệp thắng{% else %}🎩 Mũ Trắng thắng{% endif %}</h1>
+  <p class="sub">{{ sp.result }}</p>
+  <div class="panel">
+    <p style="margin:0 0 6px">Từ của Dân: <b class="r-villa">{{ sp.civ_word }}</b></p>
+    <p style="margin:0">Từ của Gián điệp: <b class="r-wolf">{{ sp.spy_word }}</b></p>
+  </div>
+
+{% else %}
+  {% if sp.phase == 'DESC' %}
+    <h1>🕵️ Vòng {{ sp.round }}</h1>
+    <p class="sub">Lần lượt mô tả từ khoá của bạn bằng một câu, đừng nói thẳng từ đó.</p>
+  {% elif sp.phase == 'VOTE' %}
+    <h1>⚖️ Ai là gián điệp?</h1>
+    <p class="sub">Chọn người bạn nghi nhất. Hoà phiếu thì không ai bị loại.</p>
+  {% else %}
+    <h1>🎩 Mũ Trắng đoán từ</h1>
+    <p class="sub">{{ sp.result }}</p>
+  {% endif %}
+
+  """ + SPY_CARD + """
+
+  {% if sp.phase == 'DESC' and sp.result %}<div class="note" style="margin-top:14px">{{ sp.result }}</div>{% endif %}
+
+  {% if sp.phase == 'VOTE' %}
+    <div class="panel" style="margin-top:14px">
+    {% if not mine.alive %}
+      <div class="note bad">Bạn đã bị loại nên không bỏ phiếu.</div>
+    {% else %}
+      <form method="POST" action="/spy/vote">
+        <select name="target">
+          {% for p in sp.order %}{% if p != me %}<option value="{{ p }}" {{ 'selected' if mine.vote == p }}>{{ p }}</option>{% endif %}{% endfor %}
+        </select>
+        <button type="submit" class="btn-wolf">{{ 'Đổi phiếu' if mine.vote else 'Bỏ phiếu' }}</button>
+      </form>
+      {% if mine.vote %}<div class="note done" style="margin-top:12px">Bạn đã bầu: {{ mine.vote }}. Có thể đổi đến khi quản trò chốt.</div>{% endif %}
+    {% endif %}
+    </div>
+    <p class="sub" style="margin-top:14px">Đã bỏ phiếu: {{ voted }} / {{ alive }} người.</p>
+  {% elif sp.phase == 'GUESS' %}
+    <div class="panel" style="margin-top:14px">
+    {% if me == sp.guesser %}
+      <h2>Từ khoá của Dân là gì?</h2>
+      <form method="POST" action="/spy/guess">
+        <input type="text" name="guess" maxlength="40" placeholder="Nhập từ bạn đoán" required autocomplete="off">
+        <button type="submit" class="btn-seer">Đoán</button>
+      </form>
+    {% else %}
+      <div class="note">{{ sp.guesser }} là Mũ Trắng và đang đoán từ của Dân…</div>
+    {% endif %}
+    </div>
+  {% endif %}
+{% endif %}
+
+<div class="panel" style="margin-top:14px">
+  {% if sp.phase in ('DESC', 'VOTE') %}<h2>Thứ tự nói vòng {{ sp.round }}</h2>
+  <ol class="roster order">
+    {% for p in sp.order %}<li class="{{ 'me' if p == me }}"><span>{{ p }}</span>{% if p == me %}<span class="count">bạn</span>{% endif %}</li>{% endfor %}
+  </ol>{% endif %}
+  {% set outs = [] %}{% for p, i in sp.roster.items() %}{% if not i.alive or sp.phase == 'END' %}{% set _ = outs.append(p) %}{% endif %}{% endfor %}
+  {% if outs %}
+  <h2 {% if sp.phase in ('DESC', 'VOTE') %}style="margin-top:16px"{% endif %}>{{ 'Lật bài' if sp.phase == 'END' else 'Đã bị loại' }}</h2>
+  <ul class="roster">
+    {% for p in outs %}{% set i = sp.roster[p] %}<li class="{{ 'out' if not i.alive }}"><span>{{ p }}</span>
+      <span class="r-{{ sroles[i.role].cls }}">{{ sroles[i.role].icon }} {{ sroles[i.role].name }}</span></li>{% endfor %}
+  </ul>
+  {% endif %}
+</div>
+</div>
+"""
+
+SPY_ADMIN = """
+<div data-phase="SPY-{{ sp.phase }}" data-game="{{ game_id }}" data-body="">
+<div class="brand"><span>HILtrip Quản trò</span><a href="/">Màn hình người chơi</a></div>
+<h1>🕵️ Gián Điệp{% if sp.phase != 'END' %}, vòng {{ sp.round }}{% endif %}</h1>
+<p class="sub">{{ alive }} người còn trong cuộc · {{ nspy }} gián điệp{% if nwhite %}, {{ nwhite }} Mũ Trắng{% endif %} lúc chia</p>
+
+{% if sp.result %}<div class="panel"><div class="note {{ 'done' if sp.phase == 'END' }}">{{ sp.result }}</div></div>{% endif %}
+
+{% if sp.phase == 'VOTE' %}
+<div class="panel">
+  <h2>Phiếu bầu <span class="count">· {{ voted }}/{{ alive }} đã bỏ</span></h2>
+  <ul class="roster">
+    {% for name, n in tally %}<li><span>{{ name }}</span><span class="tag dead">{{ n }} phiếu</span></li>
+    {% else %}<li><span class="count">Chưa có phiếu nào.</span></li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="panel">
+  {% if sp.phase in ('DESC', 'VOTE') %}<h2>Thứ tự nói</h2>
+  <ol class="roster order">{% for p in sp.order %}<li><span>{{ p }}</span></li>{% endfor %}</ol>{% endif %}
+  <h2 {% if sp.phase in ('DESC', 'VOTE') %}style="margin-top:16px"{% endif %}>Tất cả người chơi</h2>
+  <ul class="roster">
+    {% for p, i in sp.roster.items() %}<li class="{{ 'out' if not i.alive }}"><span>{{ p }}</span>
+      {% if not i.alive or sp.phase == 'END' %}<span class="r-{{ sroles[i.role].cls }}">{{ sroles[i.role].icon }} {{ sroles[i.role].name }}</span>
+      {% else %}<span class="tag ok">Còn trong cuộc</span>{% endif %}</li>{% endfor %}
+  </ul>
+</div>
+
+{% if sp.phase == 'END' %}
+<div class="panel">
+  <p style="margin:0 0 6px">Từ của Dân: <b class="r-villa">{{ sp.civ_word }}</b></p>
+  <p style="margin:0">Từ của Gián điệp: <b class="r-wolf">{{ sp.spy_word }}</b></p>
+</div>
+{% else %}
+<div class="panel"><details><summary>Xem từ khoá (chỉ quản trò, đừng để người chơi nhìn)</summary>
+  <p style="margin:12px 0 4px">Dân: <b class="r-villa">{{ sp.civ_word }}</b></p>
+  <p style="margin:0">Gián điệp: <b class="r-wolf">{{ sp.spy_word }}</b></p></details></div>
+{% endif %}
+
+<div class="panel stack">
+  {% if sp.phase == 'DESC' %}
+  <form action="/admin/spy/open_vote" method="POST"><button type="submit">Mọi người đã nói xong, mở biểu quyết</button></form>
+  {% elif sp.phase == 'VOTE' %}
+  <form action="/admin/spy/close_vote" method="POST" data-confirm="Chốt phiếu và loại người nhiều phiếu nhất?"><button type="submit" class="btn-wolf">Chốt phiếu</button></form>
+  {% elif sp.phase == 'GUESS' %}
+  <form action="/admin/spy/skip_guess" method="POST" data-confirm="Coi như Mũ Trắng đoán sai?"><button type="submit" class="btn-ghost">Mũ Trắng không đoán, đi tiếp</button></form>
+  {% else %}
+  """ + SPY_START_FORM.replace("Bắt đầu Truy Tìm Gián Điệp", "Ván Gián Điệp mới") + """
+  <form action="/admin/assign" method="POST"><button type="submit">Chuyển sang Ma Sói</button></form>
+  {% endif %}
+  {% if sp.phase != 'END' %}
+  <form action="/admin/spy/end" method="POST" data-confirm="Kết thúc ván và lật bài cho mọi người?"><button type="submit" class="btn-ghost">Kết thúc ván, lật bài</button></form>
+  {% endif %}
+  <form action="/admin/reset" method="POST" data-confirm="Xoá toàn bộ người chơi và làm lại từ đầu?"><button type="submit" class="btn-ghost">Xoá phòng, làm lại từ đầu</button></form>
+</div>
+</div>
+"""
+
+
+def spy_ctx():
+    sp = game_data["spy"]
+    alive = [i for i in sp["roster"].values() if i["alive"]]
+    roles = [i["role"] for i in sp["roster"].values()]
+    return dict(sp=sp, sroles=SPY_ROLES, game_id=game_data["game_id"],
+                alive=len(alive), voted=sum(1 for i in alive if i["vote"]),
+                tally=spy_tally(sp), nspy=roles.count("spy"), nwhite=roles.count("white"),
+                npairs=len(WORD_PAIRS), total=len(game_data["players"]))
+
+
+def spy_index(username):
+    sp = game_data["spy"]
+    body = render_template_string(SPY_BODY, me=username, mine=sp["roster"].get(username), **spy_ctx())
+    return page("HILtrip Gián Điệp", body, "", "/?partial=1")
+
+
+def spy_admin():
+    body = render_template_string(SPY_ADMIN, **spy_ctx())
+    return page("HILtrip Quản trò", body, "", "/admin?partial=1")
+
+
+@app.route('/admin/spy/start', methods=['POST'])
+def spy_start():
+    with _lock:
+        names = list(game_data["players"].keys())
+        n = len(names)
+        if n < 3:
+            return redirect(url_for('admin_panel'))
+        civ_w = (request.form.get("civ") or "").strip()[:40]
+        spy_w = (request.form.get("spy") or "").strip()[:40]
+        if not (civ_w and spy_w) or norm(civ_w) == norm(spy_w):
+            civ_w, spy_w = random.choice(WORD_PAIRS)
+            if random.random() < 0.5:
+                civ_w, spy_w = spy_w, civ_w
+        if n <= 6:
+            spies, whites = 1, 0
+        elif n <= 9:
+            spies, whites = 1, 1
+        elif n <= 12:
+            spies, whites = 2, 1
+        else:
+            spies, whites = 3, 1
+        roles = ["spy"] * spies + ["white"] * whites
+        roles += ["civ"] * (n - len(roles))
+        random.shuffle(roles)
+        roster = {}
+        for name, r in zip(names, roles):
+            word = civ_w if r == "civ" else (spy_w if r == "spy" else None)
+            roster[name] = {"role": r, "word": word, "alive": True, "vote": None}
+        sp = {"phase": "DESC", "round": 1, "roster": roster, "order": [], "civ_word": civ_w,
+              "spy_word": spy_w, "result": "", "winner": None, "guesser": None}
+        spy_new_order(sp)
+        game_data["spy"] = sp
+        game_data["phase"] = "SPY"
+        game_data["game_id"] += 1
+        bump()
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/spy/vote', methods=['POST'])
+def spy_vote():
+    username = session.get('username')
+    target = request.form.get('target')
+    with _lock:
+        sp = game_data.get("spy")
+        if sp and game_data["phase"] == "SPY" and sp["phase"] == "VOTE":
+            me, t = sp["roster"].get(username), sp["roster"].get(target)
+            if me and t and me["alive"] and t["alive"] and target != username:
+                me["vote"] = target
+                bump()
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/spy/open_vote', methods=['POST'])
+def spy_open_vote():
+    with _lock:
+        sp = game_data.get("spy")
+        if sp and sp["phase"] == "DESC":
+            for i in sp["roster"].values():
+                i["vote"] = None
+            sp["phase"] = "VOTE"
+            bump()
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/spy/close_vote', methods=['POST'])
+def spy_close_vote():
+    with _lock:
+        sp = game_data.get("spy")
+        if not sp or sp["phase"] != "VOTE":
+            return redirect(url_for('admin_panel'))
+        tally = spy_tally(sp)
+        if not tally:
+            sp["result"] = "Không ai bỏ phiếu, vòng này không ai bị loại."
+        elif len(tally) > 1 and tally[0][1] == tally[1][1]:
+            sp["result"] = f"Hoà phiếu ({tally[0][1]} phiếu), vòng này không ai bị loại."
+        else:
+            name, n = tally[0]
+            p = sp["roster"][name]
+            p["alive"] = False
+            r = SPY_ROLES[p["role"]]
+            sp["result"] = f"{name} bị loại với {n} phiếu. {name} là {r['icon']} {r['name']}."
+            if p["role"] == "white":
+                sp["guesser"] = name
+                sp["phase"] = "GUESS"
+                bump()
+                return redirect(url_for('admin_panel'))
+        spy_next_round(sp)
+        bump()
+    return redirect(url_for('admin_panel'))
+
+
+def spy_resolve_guess(guess):
+    sp = game_data["spy"]
+    g = sp["guesser"]
+    if guess and norm(guess) == norm(sp["civ_word"]):
+        sp["result"] += f" {g} đoán đúng từ “{sp['civ_word']}”!"
+        sp["winner"] = "white"
+        sp["phase"] = "END"
+    else:
+        shown = f"“{guess}”" if guess else "không đoán"
+        sp["result"] += f" {g} đoán {shown}, sai rồi."
+        spy_next_round(sp)
+    sp["guesser"] = None
+    bump()
+
+
+@app.route('/spy/guess', methods=['POST'])
+def spy_guess():
+    username = session.get('username')
+    with _lock:
+        sp = game_data.get("spy")
+        if sp and sp["phase"] == "GUESS" and sp["guesser"] == username:
+            spy_resolve_guess((request.form.get("guess") or "").strip()[:40])
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/spy/skip_guess', methods=['POST'])
+def spy_skip_guess():
+    with _lock:
+        sp = game_data.get("spy")
+        if sp and sp["phase"] == "GUESS":
+            spy_resolve_guess("")
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/spy/end', methods=['POST'])
+def spy_end():
+    with _lock:
+        sp = game_data.get("spy")
+        if sp and sp["phase"] != "END":
+            sp["phase"] = "END"
+            sp["winner"] = None
+            sp["result"] = "Quản trò đã kết thúc ván."
+            bump()
+    return redirect(url_for('admin_panel'))
+
 
 
 if __name__ == '__main__':
