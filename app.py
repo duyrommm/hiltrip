@@ -3,7 +3,7 @@ import os
 from flask import Flask, render_template_string, request, redirect, url_for, session
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
+app.secret_key = os.environ.get('SECRET_KEY', 'default-fallback-key')
 
 game_data = {
     "phase": "LOBBY",         # LOBBY -> NIGHT -> DAY -> VOTE -> END
