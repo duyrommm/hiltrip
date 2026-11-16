@@ -564,9 +564,9 @@ def admin_assign():
             roles = ["Wolf"] + ["Villager"] * (total - 1)
         elif total <= 6:
             roles = ["Wolf", "Seer"] + ["Villager"] * (total - 2)
-        elif total <= 10:
+        elif total <= 8:
             roles = ["Wolf", "Seer", "Guard"] + ["Villager"] * (total - 3)
-        else:
+        else:   # từ 9 người: 2 Sói
             roles = ["Wolf", "Wolf", "Seer", "Guard"] + ["Villager"] * (total - 4)
         random.shuffle(roles)
         for i, uname in enumerate(usernames):
