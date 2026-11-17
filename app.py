@@ -98,6 +98,21 @@ def bump():
     db_save()
 
 
+AVATARS = ["🦀", "🐙", "🐬", "🐢", "🦈", "🐳", "🦑", "🐠", "🦞", "🐚",
+           "🐶", "🐱", "🦊", "🐼", "🐨", "🐯", "🦁", "🐸", "🐵", "🐧",
+           "🦄", "🐝", "🦉", "🐻"]
+
+
+def av(name):
+    """Icon của người chơi để hiện cạnh tên."""
+    if not name or name.startswith("🤖"):
+        return ""
+    return (game_data["players"].get(name) or {}).get("avatar") or "🙂"
+
+
+app.jinja_env.globals["av"] = av
+
+
 def can_vote(i):
     return i["role"] and i["alive"] and not (i["role"] == "Idiot" and i.get("revealed"))
 
@@ -195,6 +210,16 @@ body.day{ --ink:#f1e9d6; --ink-2:#fffaf0; --line:#ddd0b2; --moon:#2b2a33; --mist
 .wrap{max-width:480px;margin:0 auto;padding:20px 16px 48px}
 .brand{font:700 15px/1 "Lora",Georgia,serif;color:var(--mist);display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
 .brand span a + a{margin-left:6px}
+.avs{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:14px}
+.avs label{position:relative;cursor:pointer}
+.avs input{position:absolute;opacity:0;width:1px;height:1px}
+.avs span{display:flex;align-items:center;justify-content:center;font-size:26px;height:48px;border:1px solid var(--line);border-radius:10px;background:var(--ink)}
+.avs input:checked + span{border:2px solid var(--villa);background:var(--ink-2);transform:scale(1.06)}
+.avs input:disabled + span{opacity:.22;cursor:not-allowed}
+.avs input:focus-visible + span{outline:3px solid var(--seer);outline-offset:2px}
+.banner{display:block;text-decoration:none;color:var(--moon);font-weight:700;border:1px solid var(--guard);background:var(--ink-2);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px}
+.banner small{display:block;color:var(--mist);font-weight:400;margin-top:2px}
+.mini{display:inline-block;width:auto;padding:4px 12px;font-size:13px;font-weight:500}
 .brand a{color:var(--mist);font:500 14px "Be Vietnam Pro",system-ui,sans-serif;text-decoration:none;border:1px solid var(--line);padding:6px 12px;border-radius:999px}
 h1{font:700 30px/1.15 "Lora",Georgia,serif;margin:0 0 6px}
 .sub{color:var(--mist);margin:0 0 22px}
@@ -292,6 +317,7 @@ details summary{cursor:pointer;font-weight:500}
   }
 
   function refresh(){
+    if (app.querySelector('form[action="/join"]')) return;
     var a = document.activeElement;
     if (busy || (a && (a.tagName === 'SELECT' || a.tagName === 'INPUT'))) { setTimeout(refresh, 1500); return; }
     busy = true;
@@ -345,25 +371,30 @@ def page(title, body, body_cls, partial_url):
 # ---------------------------------------------------------------- màn hình người chơi
 PLAYER_BODY = """
 <div data-phase="{{ phase }}" data-game="{{ game_id }}" data-body="{{ body_cls }}">
-<div class="brand"><span>HILtrip Ma Sói</span>
+<div class="brand"><span>{{ 'HILtrip' if (not me or phase == 'LOBBY') else 'HILtrip Ma Sói' }}</span>
   <span>{% if mission_on %}<a href="/mission">🎯 Điệp vụ</a> {% endif %}{% if me %}<a href="/logout">Thoát</a>{% endif %}</span></div>
 
 {% if not me %}
-  <h1>Vào làng</h1>
-  <p class="sub">Nhập tên để mọi người nhận ra bạn.</p>
+  <h1>Vào phòng chơi</h1>
+  <p class="sub">Chọn một icon và nhập tên để mọi người nhận ra bạn.</p>
   <form method="POST" action="/join" class="panel">
-    <input type="text" name="username" maxlength="30" placeholder="Tên của bạn, ví dụ: Duy đẹp trai" required autocomplete="off" autofocus>
+    <div class="avs" role="radiogroup" aria-label="Chọn icon">
+      {% for e in avatars %}<label title="{{ e }}"><input type="radio" name="avatar" value="{{ e }}" {{ 'disabled' if e in taken }}><span>{{ e }}</span></label>{% endfor %}
+    </div>
+    <input type="text" name="username" maxlength="30" placeholder="Tên của bạn, ví dụ: Duy đẹp trai" required autocomplete="off">
     <button type="submit">Vào phòng</button>
+    <p class="count" style="margin:10px 0 0">Icon mờ là đã có người chọn. Không chọn thì app chọn giúp. Đã chơi rồi thì nhập <b>đúng tên cũ</b> để giữ điểm.</p>
   </form>
   {% if phase != 'LOBBY' %}<p class="sub" style="margin-top:14px">Ván đang diễn ra. Bạn sẽ được chia vai ở ván sau.</p>{% endif %}
 
 {% elif phase == 'LOBBY' %}
-  <h1>Chào {{ me }}</h1>
+  <h1>Chào {{ av(me) }} {{ me }}</h1>
   <p class="sub">Đang chờ quản trò chọn trò chơi. Màn hình sẽ tự chuyển.</p>
+  {% if mission_on %}<a class="banner" href="/mission">🎯 Điệp vụ Vũng Tàu đang diễn ra<small>Chạm để xem vai và nhiệm vụ của bạn</small></a>{% endif %}
   <div class="panel">
     <h2>Trong phòng <span class="count">· {{ players|length }} người</span></h2>
     <ul class="roster">
-      {% for p in players %}<li class="{{ 'me' if p == me }}"><span>{{ p }}</span>{% if p == me %}<span class="count">bạn</span>{% endif %}</li>{% endfor %}
+      {% for p in players %}<li class="{{ 'me' if p == me }}"><span>{{ av(p) }} {{ p }}</span>{% if p == me %}<span class="count">bạn</span>{% endif %}</li>{% endfor %}
     </ul>
   </div>
 
@@ -389,8 +420,8 @@ PLAYER_BODY = """
     {% if not info.acted %}
       <h2>Cắn ai đêm nay?</h2>
       <form method="POST" action="/action">
-        <select name="target">
-          {% for p, i in players.items() %}{% if p != me and i.role and i.alive and i.role != 'Wolf' %}<option value="{{ p }}">{{ p }}</option>{% endif %}{% endfor %}
+        <select name="target" required><option value="" disabled selected>Chọn người…</option>
+          {% for p, i in players.items() %}{% if p != me and i.role and i.alive and i.role != 'Wolf' %}<option value="{{ p }}">{{ av(p) }} {{ p }}</option>{% endif %}{% endfor %}
         </select>
         <button type="submit" class="btn-wolf">Chốt mục tiêu</button>
       </form>
@@ -403,8 +434,8 @@ PLAYER_BODY = """
     {% if not info.acted %}
       <h2>Soi ai đêm nay?</h2>
       <form method="POST" action="/action">
-        <select name="target">
-          {% for p, i in players.items() %}{% if p != me and i.role and i.alive %}<option value="{{ p }}">{{ p }}{% if p in seen %} (đã soi){% endif %}</option>{% endif %}{% endfor %}
+        <select name="target" required><option value="" disabled selected>Chọn người…</option>
+          {% for p, i in players.items() %}{% if p != me and i.role and i.alive %}<option value="{{ p }}">{{ av(p) }} {{ p }}{% if p in seen %} (đã soi){% endif %}</option>{% endif %}{% endfor %}
         </select>
         <button type="submit" class="btn-seer">Soi người này</button>
       </form>
@@ -415,7 +446,7 @@ PLAYER_BODY = """
     {% if seen %}
       <h2 style="margin-top:16px">Đã soi</h2>
       <ul class="roster">
-        {% for p, w in seen.items() %}<li><span>{{ p }}</span>{% if w %}<span class="tag dead">Sói</span>{% else %}<span class="tag ok">Không phải Sói</span>{% endif %}</li>{% endfor %}
+        {% for p, w in seen.items() %}<li><span>{{ av(p) }} {{ p }}</span>{% if w %}<span class="tag dead">Sói</span>{% else %}<span class="tag ok">Không phải Sói</span>{% endif %}</li>{% endfor %}
       </ul>
     {% endif %}
     </div>
@@ -445,8 +476,8 @@ PLAYER_BODY = """
     {% if not info.acted %}
       <h2>Bảo vệ ai đêm nay?</h2>
       <form method="POST" action="/action">
-        <select name="target">
-          {% for p, i in players.items() %}{% if i.role and i.alive and p != info.last %}<option value="{{ p }}">{{ p }}{% if p == me %} (chính mình){% endif %}</option>{% endif %}{% endfor %}
+        <select name="target" required><option value="" disabled selected>Chọn người…</option>
+          {% for p, i in players.items() %}{% if i.role and i.alive and p != info.last %}<option value="{{ p }}">{{ av(p) }} {{ p }}{% if p == me %} (chính mình){% endif %}</option>{% endif %}{% endfor %}
         </select>
         <button type="submit" class="btn-guard">Bảo vệ người này</button>
       </form>
@@ -467,7 +498,7 @@ PLAYER_BODY = """
     <h2>Dân làng <span class="count">· còn {{ alive }} / {{ total }}</span></h2>
     <ul class="roster">
       {% for p, i in players.items() %}{% if i.role %}
-      <li class="{{ 'out' if not i.alive }} {{ 'me' if p == me }}"><span>{{ p }}</span>
+      <li class="{{ 'out' if not i.alive }} {{ 'me' if p == me }}"><span>{{ av(p) }} {{ p }}</span>
         <span>{% if i.revealed %}<span class="r-{{ roles[i.role].cls }}" style="margin-right:8px">{{ roles[i.role].icon }} {{ roles[i.role].name }}</span>{% endif %}
         {% if i.alive %}<span class="tag ok">Còn sống</span>{% else %}<span class="tag dead">Đã chết</span>{% endif %}</span></li>
       {% endif %}{% endfor %}
@@ -486,8 +517,8 @@ PLAYER_BODY = """
   {% else %}
   <div class="panel">
     <form method="POST" action="/vote">
-      <select name="target">
-        {% for p, i in players.items() %}{% if p != me and i.role and i.alive %}<option value="{{ p }}" {{ 'selected' if info.vote == p }}>{{ p }}</option>{% endif %}{% endfor %}
+      <select name="target" required><option value="" disabled selected>Chọn người…</option>
+        {% for p, i in players.items() %}{% if p != me and i.role and i.alive %}<option value="{{ p }}" {{ 'selected' if info.vote == p }}>{{ av(p) }} {{ p }}</option>{% endif %}{% endfor %}
       </select>
       <button type="submit" class="btn-wolf">{{ 'Đổi phiếu' if info.vote else 'Bỏ phiếu' }}</button>
     </form>
@@ -503,9 +534,9 @@ PLAYER_BODY = """
   <div class="panel">
     <h2>Bạn là Thợ Săn. Bắn ai trước khi chết?</h2>
     <form method="POST" action="/shoot">
-      <select name="target">
-        {% for p, i in players.items() %}{% if p != me and i.role and i.alive %}<option value="{{ p }}">{{ p }}</option>{% endif %}{% endfor %}
-        <option value="">Không bắn ai</option>
+      <select name="target" required><option value="" disabled selected>Chọn người…</option>
+        {% for p, i in players.items() %}{% if p != me and i.role and i.alive %}<option value="{{ p }}">{{ av(p) }} {{ p }}</option>{% endif %}{% endfor %}
+        <option value="__none__">Không bắn ai</option>
       </select>
       <button type="submit" class="btn-wolf">Bắn</button>
     </form>
@@ -522,7 +553,7 @@ PLAYER_BODY = """
   <div class="panel">
     <ul class="roster">
       {% for p, i in players.items() %}{% if i.role %}
-      <li class="{{ 'out' if not i.alive }}"><span>{{ p }}</span><span class="r-{{ roles[i.role].cls }}">{{ roles[i.role].icon }} {{ roles[i.role].name }}</span></li>
+      <li class="{{ 'out' if not i.alive }}"><span>{{ av(p) }} {{ p }}</span><span class="r-{{ roles[i.role].cls }}">{{ roles[i.role].icon }} {{ roles[i.role].name }}</span></li>
       {% endif %}{% endfor %}
     </ul>
   </div>
@@ -546,6 +577,7 @@ def index():
     players = game_data["players"]
     body = render_template_string(
         PLAYER_BODY, phase=phase, me=username, info=info, players=players,
+        avatars=AVATARS, taken={i.get("avatar") for i in players.values()},
         mission_on=bool(game_data.get("mission")),
         game_id=game_data["game_id"],
         role=ROLES.get(info["role"]) if info and info["role"] else None,
@@ -561,7 +593,7 @@ def index():
         victim=wolf_target() if info and info["role"] == "Witch" else None,
         alive=sum(1 for i in players.values() if i["role"] and i["alive"]),
         total=sum(1 for i in players.values() if i["role"]))
-    return page("HILtrip Ma Sói", body, body_cls, "/?partial=1")
+    return page("HILtrip", body, body_cls, "/?partial=1")
 
 
 @app.route('/state')
@@ -575,10 +607,20 @@ def join():
     if username:
         session['username'] = username
         with _lock:
-            if username not in game_data["players"]:
+            players = game_data["players"]
+            pick = request.form.get('avatar')
+            taken = {i.get("avatar") for n, i in players.items() if n != username}
+            if pick not in AVATARS or pick in taken:
+                pick = None
+            if username not in players:
                 # vào giữa ván: chưa có vai, xem đến ván sau
                 role = "Villager" if game_data["phase"] == "LOBBY" else None
-                game_data["players"][username] = {"role": role, "alive": True, "target": None, "acted": False, "vote": None}
+                free = [e for e in AVATARS if e not in taken] or AVATARS
+                players[username] = {"role": role, "alive": True, "target": None, "acted": False, "vote": None,
+                                     "avatar": pick or random.choice(free)}
+                bump()
+            elif pick:
+                players[username]["avatar"] = pick   # vào lại tên cũ: đổi icon nếu muốn
                 bump()
     return redirect(url_for('index'))
 
@@ -710,7 +752,7 @@ ADMIN_BODY = """
 <div class="panel">
   <h2>Phiếu bầu <span class="count">· {{ voted }}/{{ voters }} đã bỏ</span></h2>
   <ul class="roster">
-    {% for name, n in tally %}<li><span>{{ name }}</span><span class="tag dead">{{ n }} phiếu</span></li>
+    {% for name, n in tally %}<li><span>{{ av(name) }} {{ name }}</span><span class="tag dead">{{ n }} phiếu</span></li>
     {% else %}<li><span class="count">Chưa có phiếu nào.</span></li>{% endfor %}
   </ul>
 </div>
@@ -720,9 +762,9 @@ ADMIN_BODY = """
   <h2>Người chơi</h2>
   <ul class="roster">
     {% for p, i in players.items() %}
-    <li class="{{ 'out' if not i.alive }}"><span>{{ p }}</span>
+    <li class="{{ 'out' if not i.alive }}"><span>{{ av(p) }} {{ p }}</span>
       {% if not i.role %}<span class="count">vào sau, xem</span>
-      {% elif phase == 'LOBBY' %}<span class="count">đã vào</span>
+      {% elif phase == 'LOBBY' %}<form method="POST" action="/admin/kick" style="display:inline" data-confirm="Xoá {{ p }} khỏi phòng?"><input type="hidden" name="name" value="{{ p }}"><button type="submit" class="btn-ghost mini">Xoá</button></form>
       {% elif phase == 'END' %}<span class="r-{{ roles[i.role].cls }}">{{ roles[i.role].icon }} {{ roles[i.role].name }}</span>
       {% else %}<span>{% if i.revealed %}<span class="r-{{ roles[i.role].cls }}" style="margin-right:8px">{{ roles[i.role].icon }} {{ roles[i.role].name }}</span>{% endif %}
         {% if i.alive %}<span class="tag ok">Còn sống</span>{% else %}<span class="tag dead">Đã chết</span>{% endif %}</span>{% endif %}
@@ -778,6 +820,16 @@ def admin_panel():
         alive=sum(1 for i in players.values() if i["role"] and i["alive"]),
         wolves=len(wolves), wolves_done=sum(1 for i in wolves if i["acted"]))
     return page("HILtrip Quản trò", body, body_cls, "/admin?partial=1")
+
+
+@app.route('/admin/kick', methods=['POST'])
+def admin_kick():
+    name = request.form.get("name")
+    with _lock:
+        if game_data["phase"] == "LOBBY" and name in game_data["players"]:
+            game_data["players"].pop(name)     # điểm Điệp vụ vẫn giữ theo tên
+            bump()
+    return redirect(url_for('admin_panel'))
 
 
 @app.route('/admin/assign', methods=['POST'])
@@ -1086,12 +1138,13 @@ SPY_BODY = """
   <p class="sub">Bạn vào sau khi chia từ nên ván này chỉ xem. Chờ ván sau nhé.</p>
 
 {% elif sp.phase == 'END' %}
-  <h1>{% if sp.winner == 'civ' %}🏡 Dân thắng{% elif sp.winner == 'spy' %}🕵️ Gián điệp thắng{% else %}🎩 Mũ Trắng thắng{% endif %}</h1>
+  <h1>{% if sp.winner == 'civ' %}🏡 Dân thắng{% elif sp.winner == 'spy' %}🕵️ Gián điệp thắng{% elif sp.winner == 'white' %}🎩 Mũ Trắng thắng{% else %}Hết ván{% endif %}</h1>
   <p class="sub">{{ sp.result }}</p>
   <div class="panel">
     <p style="margin:0 0 6px">Từ của Dân: <b class="r-villa">{{ sp.civ_word }}</b></p>
     <p style="margin:0">Từ của Gián điệp: <b class="r-wolf">{{ sp.spy_word }}</b></p>
   </div>
+  {% if mission_on %}<a class="banner" href="/mission" style="margin-top:14px">🎯 Điệp vụ Vũng Tàu đang diễn ra<small>Chạm để xem vai và nhiệm vụ của bạn</small></a>{% endif %}
 
 {% else %}
   {% if sp.phase == 'DESC' %}
@@ -1116,8 +1169,8 @@ SPY_BODY = """
       <div class="note bad">Bạn đã bị loại nên không bỏ phiếu. Hãy im lặng giúp trò chơi vui hơn.</div>
     {% else %}
       <form method="POST" action="/spy/vote">
-        <select name="target">
-          {% for p in sp.order %}{% if p != me %}<option value="{{ p }}" {{ 'selected' if mine.vote == p }}>{{ p }}</option>{% endif %}{% endfor %}
+        <select name="target" required><option value="" disabled selected>Chọn người…</option>
+          {% for p in sp.order %}{% if p != me %}<option value="{{ p }}" {{ 'selected' if mine.vote == p }}>{{ av(p) }} {{ p }}</option>{% endif %}{% endfor %}
         </select>
         <button type="submit" class="btn-wolf">{{ 'Đổi phiếu' if mine.vote else 'Bỏ phiếu' }}</button>
       </form>
@@ -1143,13 +1196,13 @@ SPY_BODY = """
 <div class="panel" style="margin-top:14px">
   {% if sp.phase in ('DESC', 'VOTE') %}<h2>Thứ tự nói vòng {{ sp.round }}</h2>
   <ol class="roster order">
-    {% for p in sp.order %}<li class="{{ 'me' if p == me }}"><span>{{ p }}</span>{% if p == me %}<span class="count">bạn</span>{% endif %}</li>{% endfor %}
+    {% for p in sp.order %}<li class="{{ 'me' if p == me }}"><span>{{ av(p) }} {{ p }}</span>{% if p == me %}<span class="count">bạn</span>{% endif %}</li>{% endfor %}
   </ol>{% endif %}
   {% set outs = [] %}{% for p, i in sp.roster.items() %}{% if not i.alive or sp.phase == 'END' %}{% set _ = outs.append(p) %}{% endif %}{% endfor %}
   {% if outs %}
   <h2 {% if sp.phase in ('DESC', 'VOTE') %}style="margin-top:16px"{% endif %}>{{ 'Lật bài' if sp.phase == 'END' else 'Đã bị loại' }}</h2>
   <ul class="roster">
-    {% for p in outs %}{% set i = sp.roster[p] %}<li class="{{ 'out' if not i.alive }}"><span>{{ p }}</span>
+    {% for p in outs %}{% set i = sp.roster[p] %}<li class="{{ 'out' if not i.alive }}"><span>{{ av(p) }} {{ p }}</span>
       <span class="r-{{ sroles[i.role].cls }}">{{ sroles[i.role].icon }} {{ sroles[i.role].name }}</span></li>{% endfor %}
   </ul>
   {% endif %}
@@ -1169,7 +1222,7 @@ SPY_ADMIN = """
 <div class="panel">
   <h2>Phiếu bầu <span class="count">· {{ voted }}/{{ alive }} đã bỏ</span></h2>
   <ul class="roster">
-    {% for name, n in tally %}<li><span>{{ name }}</span><span class="tag dead">{{ n }} phiếu</span></li>
+    {% for name, n in tally %}<li><span>{{ av(name) }} {{ name }}</span><span class="tag dead">{{ n }} phiếu</span></li>
     {% else %}<li><span class="count">Chưa có phiếu nào.</span></li>{% endfor %}
   </ul>
 </div>
@@ -1177,10 +1230,10 @@ SPY_ADMIN = """
 
 <div class="panel">
   {% if sp.phase in ('DESC', 'VOTE') %}<h2>Thứ tự nói</h2>
-  <ol class="roster order">{% for p in sp.order %}<li><span>{{ p }}</span></li>{% endfor %}</ol>{% endif %}
+  <ol class="roster order">{% for p in sp.order %}<li><span>{{ av(p) }} {{ p }}</span></li>{% endfor %}</ol>{% endif %}
   <h2 {% if sp.phase in ('DESC', 'VOTE') %}style="margin-top:16px"{% endif %}>Tất cả người chơi</h2>
   <ul class="roster">
-    {% for p, i in sp.roster.items() %}<li class="{{ 'out' if not i.alive }}"><span>{{ p }}</span>
+    {% for p, i in sp.roster.items() %}<li class="{{ 'out' if not i.alive }}"><span>{{ av(p) }} {{ p }}</span>
       {% if not i.alive or sp.phase == 'END' %}<span class="r-{{ sroles[i.role].cls }}">{{ sroles[i.role].icon }} {{ sroles[i.role].name }}</span>
       {% else %}<span class="tag ok">Còn trong cuộc</span>{% endif %}</li>{% endfor %}
   </ul>
@@ -1627,7 +1680,7 @@ MISSION_BODY = """
   </div>
   <div class="panel">
     <h2>Bảng điểm</h2>
-    <ol class="roster order">{% for n, ag in board %}<li class="{{ 'me' if n == me }}"><span>{{ n }}{% if ag.role == 'spy' %} 🦹{% endif %}</span><b>{{ ag.score }} điểm</b></li>{% endfor %}</ol>
+    <ol class="roster order">{% for n, ag in board %}<li class="{{ 'me' if n == me }}"><span>{{ av(n) }} {{ n }}{% if ag.role == 'spy' %} 🦹{% endif %}</span><b>{{ ag.score }} điểm</b></li>{% endfor %}</ol>
   </div>
   {% for st in stages %}{% set ts = done_by_stage[loop.index0] %}{% if ts %}
   <div class="panel">
@@ -1660,6 +1713,14 @@ MISSION_BODY = """
     </span>
   </button>
 
+  {% if a.intel %}
+  <div class="panel secret" style="margin-top:14px">
+    <h2>🔎 Manh mối của bạn</h2>
+    <ul class="roster">{% for n, r in a.intel.items() %}<li><span>{{ av(n) }} {{ n }}</span>{% if r == 'spy' %}<span class="tag dead">🦹 Gián điệp</span>{% else %}<span class="tag ok">🕶️ Điệp viên</span>{% endif %}</li>{% endfor %}</ul>
+    <p class="count" style="margin:10px 0 0">Bạn biết được nhờ bắt quả tang. Giữ bí mật hay chia sẻ là tuỳ bạn.</p>
+  </div>
+  {% endif %}
+
   {% if m.phase == 'PLAY' %}
   <div class="secret">
     {% for t in open_tasks %}
@@ -1686,9 +1747,9 @@ MISSION_BODY = """
 
   <div class="panel" style="margin-top:14px">
     <h2>Có người đang giăng bẫy bạn?</h2>
-    <p class="sub" style="margin-bottom:12px">Chọn người bạn nghi đang làm nhiệm vụ nhắm vào bạn. Đúng +{{ pts.catch }}, sai {{ pts.wrong }}.</p>
+    <p class="sub" style="margin-bottom:12px">Chọn người bạn nghi đang làm nhiệm vụ nhắm vào bạn. Đúng +{{ pts.catch }} và biết được người đó thuộc phe nào; sai {{ pts.wrong }}.</p>
     <form method="POST" action="/mission/catch" data-confirm="Chắc chắn bắt quả tang người này? Sai sẽ bị trừ điểm.">
-      <select name="who">{% for n in others %}<option value="{{ n }}">{{ n }}</option>{% endfor %}</select>
+      <select name="who" required><option value="" disabled selected>Chọn người…</option>{% for n in others %}<option value="{{ n }}">{{ av(n) }} {{ n }}</option>{% endfor %}</select>
       <button type="submit" class="btn-wolf">🚨 Bắt quả tang</button>
     </form>
   </div>
@@ -1696,7 +1757,7 @@ MISSION_BODY = """
   {% elif m.phase == 'VOTE' %}
   <div class="panel" style="margin-top:14px">
     <form method="POST" action="/mission/vote">
-      <select name="who">{% for n in others %}<option value="{{ n }}" {{ 'selected' if a.vote == n }}>{{ n }}</option>{% endfor %}</select>
+      <select name="who" required><option value="" disabled selected>Chọn người…</option>{% for n in others %}<option value="{{ n }}" {{ 'selected' if a.vote == n }}>{{ av(n) }} {{ n }}</option>{% endfor %}</select>
       <button type="submit" class="btn-wolf">{{ 'Đổi phiếu' if a.vote else 'Bầu người này' }}</button>
     </form>
     {% if a.vote %}<div class="note done" style="margin-top:12px">Bạn đã bầu: {{ a.vote }}. Có thể đổi đến khi quản trò chốt.</div>{% endif %}
@@ -1872,7 +1933,9 @@ def mission_catch():
                 t.update(status="caught", at=now_vn())
                 m["agents"][me]["score"] += PTS["catch"]
                 m["agents"][who]["score"] += PTS["caught"]
-                m_notify(m, me, f"✅ Chính xác! {who} đang giăng bẫy bạn. +{PTS['catch']} điểm.")
+                side = "🦹 Gián điệp" if m["agents"][who]["role"] == "spy" else "🕶️ Điệp viên"
+                m["agents"][me].setdefault("intel", {})[who] = m["agents"][who]["role"]
+                m_notify(m, me, f"✅ Chính xác! {who} đang giăng bẫy bạn. +{PTS['catch']} điểm. Manh mối: {who} là {side}.")
                 m_notify(m, who, f"🚨 {me} đã bắt quả tang bạn, nhiệm vụ “{t['text'].replace('{t}', me)}” bị huỷ. {PTS['caught']} điểm.")
             else:
                 m["agents"][me]["score"] += PTS["wrong"]
