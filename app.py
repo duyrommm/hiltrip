@@ -382,7 +382,7 @@ PLAYER_BODY = """
   {% endif %}
 
   {% if info and not info.alive %}
-    <div class="note bad" style="margin-top:14px">Bạn đã bị loại. Hãy giữ im lặng và quan sát.</div>
+    <div class="note bad" style="margin-top:14px">Bạn đã bị loại. Hãy im lặng giúp trò chơi vui hơn.</div>
   {% elif info and info.role == 'Wolf' %}
     <div class="panel secret" style="margin-top:14px">
     {% if mates %}<p class="sub" style="margin-bottom:12px">Đồng bọn: <b class="r-wolf">{{ mates|join(', ') }}</b></p>{% endif %}
@@ -462,7 +462,7 @@ PLAYER_BODY = """
   <p class="sub">{{ night_result }}</p>
   {% if vote_result %}<div class="note" style="margin-bottom:14px">{{ vote_result }}</div>
   {% else %}<p class="sub">Thảo luận xem ai là Sói. Quản trò sẽ mở biểu quyết.</p>{% endif %}
-  {% if info and not info.alive %}<div class="note bad" style="margin-bottom:14px">Bạn đã bị loại.</div>{% endif %}
+  {% if info and not info.alive %}<div class="note bad" style="margin-bottom:14px">Bạn đã bị loại. Hãy im lặng giúp trò chơi vui hơn.</div>{% endif %}
   <div class="panel">
     <h2>Dân làng <span class="count">· còn {{ alive }} / {{ total }}</span></h2>
     <ul class="roster">
@@ -480,7 +480,7 @@ PLAYER_BODY = """
   {% if not info or not info.role %}
     <div class="note">Bạn đang xem ván này, không bỏ phiếu.</div>
   {% elif not info.alive %}
-    <div class="note bad">Bạn đã bị loại nên không bỏ phiếu.</div>
+    <div class="note bad">Bạn đã bị loại nên không bỏ phiếu. Hãy im lặng giúp trò chơi vui hơn.</div>
   {% elif info.role == 'Idiot' and info.revealed %}
     <div class="note">Bạn là Thằng Ngốc đã lộ bài nên không được bỏ phiếu nữa.</div>
   {% else %}
@@ -977,6 +977,29 @@ WORD_PAIRS = [
     ("Máy giặt", "Máy rửa bát"), ("Mặt trăng", "Mặt trời"), ("Mưa", "Bão"), ("Lửa trại", "Pháo hoa"),
     ("Lều", "Võng"), ("Kính râm", "Kính cận"), ("Nhẫn", "Dây chuyền"), ("Đám cưới", "Đám hỏi"),
     ("Sinh nhật", "Kỷ niệm"), ("Ma", "Zombie"), ("Ông già Noel", "Táo quân"), ("Bánh chưng", "Bánh tét"),
+    ("Bãi Trước", "Bãi Sau"), ("Vali", "Balo"), ("Kem chống nắng", "Sữa dưỡng thể"), ("Sạc dự phòng", "Cục sạc"),
+    ("Kính bơi", "Phao cứu sinh"), ("Thuốc say xe", "Kẹo cao su"), ("Cà phê sữa đá", "Cà phê đen"), ("Trà chanh", "Trà đào"),
+    ("Bánh tráng nướng", "Bánh tráng cuốn"), ("Bún riêu", "Bún mọc"), ("Bò bía", "Gỏi cuốn"), ("Bắp xào", "Khoai lang nướng"),
+    ("Sữa tươi", "Sữa chua dẻo"), ("Bánh flan", "Rau câu"), ("Chè khúc bạch", "Chè Thái"), ("Máy lạnh", "Quạt máy"),
+    ("Áo thun", "Áo sơ mi"), ("Giày thể thao", "Dép sandal"), ("Chăn bông", "Chiếu điều hòa"), ("Gội đầu", "Tắm hoa sen"),
+    ("Nồi cơm điện", "Nồi chiên không dầu"), ("Bàn là", "Máy sấy tóc"), ("Bếp từ", "Bếp ga"), ("Máy hút bụi", "Chổi quét nhà"),
+    ("Cốc thủy tinh", "Ca nhựa"), ("Móc phơi đồ", "Kẹp quần áo"), ("Bút bi", "Bút chì"), ("Gôm tẩy", "Bút xóa"),
+    ("Sổ tay", "Giấy note"), ("Kẹp giấy", "Dập ghim"), ("Kéo", "Dao rọc giấy"), ("Bìa hồ sơ", "Cặp tài liệu"),
+    ("Bảng trắng", "Bút lông bảng"), ("Thước kẻ", "Compa"), ("Siêu thị", "Chợ đêm"), ("Máy giặt", "Tiệm giặt ủi"),
+    ("Đồng hồ báo thức", "Chuông nhà thờ"), ("Sofa", "Ghế salon"), ("Thang máy", "Thang bộ"), ("Lịch treo tường", "Sổ tay"),
+    ("Tủ lạnh", "Thùng đá"), ("Bàn ăn", "Bàn tiệc"), ("Bàn chải răng", "Tăm xỉa"), ("Xích đu", "Ghế bập bênh"),
+    ("Quạt trần", "Máy lạnh"), ("Bình hoa", "Chậu cây"), ("Gối ôm", "Gấu bông"), ("Phở bò", "Hủ tiếu"),
+    ("Trà sữa", "Sinh tố"), ("Bánh mì", "Burger"), ("Lẩu thái", "Lẩu kim chi"), ("Bánh plan", "Bánh trứng"),
+    ("Cơm tấm", "Bún thịt nướng"), ("Cà phê phin", "Cà phê máy"), ("Nem nướng", "Chả giò"), ("Bắp rang", "Snack khoai"),
+    ("Nước mía", "Nước dừa"), ("Chè bưởi", "Chè thái"), ("Xôi mặn", "Xôi ngọt"), ("Thư viện", "Hiệu sách"),
+    ("Công viên nước", "Hồ bơi"), ("Ga tàu", "Sân bay"), ("Bưu điện", "Cửa hàng tiện lợi"), ("Chợ nổi", "Làng nghề"),
+    ("Phố đi bộ", "Night club"), ("Núi Bà Đen", "Bà Nà Hills"), ("Phố cổ Hội An", "Làng gốm Bát Tràng"), ("Bến Nhà Rồng", "Dinh Độc Lập"),
+    ("Gym", "Yoga"), ("Mèo nhà", "Mèo rừng"), ("Chó Husky", "Chó Phú Quốc"), ("Cá heo", "Cá voi"),
+    ("Đại bàng", "Diều hâu"), ("Rùa biển", "Rùa cạn"), ("Ong mật", "Bướm"), ("Voi", "Tê giác"),
+    ("Cú mèo", "Chim cánh cụt"), ("Hươu cao cổ", "Ngựa vằn"), ("Khỉ đột", "Tinh tinh"), ("Running Man", "Squid Game"),
+    ("Hai Phượng", "Lật Mặt"), ("Phim truyền hình", "Phim điện ảnh"), ("Cửa hàng tiện lợi", "Tạp hoá"), ("Freeship", "Giao hoả tốc"),
+    ("Hoàn tiền", "Đổi trả"), ("Giờ ra chơi", "Giờ thể dục"), ("Bảng đen", "Máy chiếu"), ("Bài kiểm tra", "Bài thuyết trình"),
+    ("Căn tin", "Đồ ăn vặt học sinh"), ("Kẹo mút", "Kẹo cao su"), ("Cặp sách", "Ba lô"), ("Lớp trưởng", "Bí thư lớp"),
 ]
 
 SPY_ROLES = {
@@ -1085,11 +1108,12 @@ SPY_BODY = """
   """ + SPY_CARD + """
 
   {% if sp.phase == 'DESC' and sp.result %}<div class="note" style="margin-top:14px">{{ sp.result }}</div>{% endif %}
+  {% if sp.phase != 'VOTE' and not mine.alive %}<div class="note bad" style="margin-top:14px">Bạn đã bị loại. Hãy im lặng giúp trò chơi vui hơn.</div>{% endif %}
 
   {% if sp.phase == 'VOTE' %}
     <div class="panel" style="margin-top:14px">
     {% if not mine.alive %}
-      <div class="note bad">Bạn đã bị loại nên không bỏ phiếu.</div>
+      <div class="note bad">Bạn đã bị loại nên không bỏ phiếu. Hãy im lặng giúp trò chơi vui hơn.</div>
     {% else %}
       <form method="POST" action="/spy/vote">
         <select name="target">
@@ -1699,9 +1723,30 @@ MISSION_ADMIN = """
       <button type="submit" {{ 'disabled' if total < 4 }}>Bắt đầu điệp vụ (chặng 1: Khởi hành)</button></form>
     {% if total < 4 %}<p class="count" style="margin:0">Cần ít nhất 4 người.</p>{% endif %}
   </div>
+  <div class="panel stack">
+    <h2>🧪 Chơi thử một mình</h2>
+    <p class="sub" style="margin:0">App thêm 5 người chơi ảo để bạn tự kiểm tra trọn vòng: nhận nhiệm vụ, làm nhiệm vụ, bắt quả tang, mở chặng, biểu quyết, lật bài. {% if not me %}<b>Nhập tên ở trang chủ trước</b> để bạn cũng có nhiệm vụ.{% else %}Bạn chơi với tên <b>{{ me }}</b>.{% endif %}</p>
+    <form action="/admin/mission/demo" method="POST">
+      <select name="role">
+        <option value="">Vai của bạn: ngẫu nhiên</option>
+        <option value="agent">Vai của bạn: Điệp viên</option>
+        <option value="spy">Vai của bạn: Gián điệp</option>
+      </select>
+      <button type="submit" class="btn-ghost">Bắt đầu chơi thử</button>
+    </form>
+  </div>
 
 {% else %}
   <p class="sub">Bạn cũng là người chơi: vai và nhiệm vụ của bạn nằm ở <a href="/mission" style="color:inherit">trang Điệp vụ</a>. Trang này không hiện nhiệm vụ, vai hay điểm của ai.</p>
+  {% if m.demo %}
+  <div class="panel stack">
+    <h2>🧪 Đang chơi thử</h2>
+    <p class="sub" style="margin:0">Người chơi ảo: {{ m.bots|join(', ') }}. Bấm nút dưới để họ hành động như người thật:
+      {% if m.phase == 'PLAY' %}làm xong nhiệm vụ (trừ nhiệm vụ nhắm vào bạn, để bạn thử bắt quả tang) và bắt quả tang bạn nếu bạn đang giăng bẫy họ.{% elif m.phase == 'VOTE' %}bỏ phiếu ngẫu nhiên.{% else %}ván thử đã lật bài.{% endif %}</p>
+    {% if m.phase != 'REVEAL' %}<form action="/admin/mission/demo_act" method="POST"><button type="submit" class="btn-ghost">🤖 Người chơi ảo hành động</button></form>{% endif %}
+    <p class="count" style="margin:0">Thử xong bấm “Xoá điệp vụ”: người chơi ảo cũng bị xoá theo.</p>
+  </div>
+  {% endif %}
   <div class="panel">
     <h2>Lộ trình</h2>
     <ol class="roster order">{% for st in stages %}<li class="{{ 'me' if m.phase == 'PLAY' and loop.index0 == m.stage }}"><span>{{ st.icon }} {{ st.name }}</span>
@@ -1851,7 +1896,7 @@ def mission_vote():
 @app.route('/admin/mission')
 def mission_admin():
     m = m_get()
-    ctx = dict(m=m, stages=MISSION_STAGES, total=len(game_data["players"]),
+    ctx = dict(m=m, stages=MISSION_STAGES, total=len(game_data["players"]), me=session.get('username'),
                spy_n=m_spy_count(len(game_data["players"])))
     if m:
         ctx["n_done"] = sum(1 for t in m["tasks"] if t["status"] == "done")
@@ -1861,19 +1906,84 @@ def mission_admin():
     return page("HILtrip Quản trò", body, "", "/admin/mission?partial=1")
 
 
+def m_create(force_role=None, me=None):
+    m = {"phase": "PLAY", "stage": 0, "agents": {}, "tasks": [], "next_id": 1,
+         "started": now_vn(), "result": "", "caught": [], "demo": False, "bots": []}
+    m_add_agents(m)
+    names = list(m["agents"])
+    k = m_spy_count(len(names))
+    pool = [n for n in names if n != me] if force_role and me in names else names
+    if force_role == "spy" and me in names:
+        spies = [me] + random.sample(pool, k - 1)
+    else:
+        spies = random.sample(pool, k)
+    for n in spies:
+        m["agents"][n]["role"] = "spy"
+    m_open_stage(m, 0)
+    return m
+
+
 @app.route('/admin/mission/start', methods=['POST'])
 def mission_start():
     with _lock:
         if not m_get() and len(game_data["players"]) >= 4:
-            m = {"phase": "PLAY", "stage": 0, "agents": {}, "tasks": [], "next_id": 1,
-                 "started": now_vn(), "result": "", "caught": []}
-            m_add_agents(m)
-            names = list(m["agents"])
-            for n in random.sample(names, m_spy_count(len(names))):
-                m["agents"][n]["role"] = "spy"
-            m_open_stage(m, 0)
+            game_data["mission"] = m_create()
+            bump()
+    return redirect(url_for('mission_admin'))
+
+
+BOT_NAMES = ["🤖 Ảo An", "🤖 Ảo Bình", "🤖 Ảo Chi", "🤖 Ảo Dũng", "🤖 Ảo Em"]
+
+
+@app.route('/admin/mission/demo', methods=['POST'])
+def mission_demo():
+    me = session.get('username')
+    role = request.form.get("role") or None
+    with _lock:
+        if not m_get():
+            for b in BOT_NAMES:
+                if b not in game_data["players"]:
+                    game_data["players"][b] = {"role": "Villager" if game_data["phase"] == "LOBBY" else None,
+                                               "alive": True, "target": None, "acted": False, "vote": None}
+            m = m_create(force_role=role if me in game_data["players"] else None, me=me)
+            if role == "agent" and me in m["agents"] and m["agents"][me]["role"] == "spy":
+                # đổi vai: bạn làm Điệp viên, một người ảo nhận vai Gián điệp thay
+                swap = next(b for b in BOT_NAMES if m["agents"][b]["role"] == "agent")
+                m["agents"][me]["role"], m["agents"][swap]["role"] = "agent", "spy"
+                for t in m["tasks"]:
+                    if t["kind"] == "sab" and t["owner"] == me:
+                        t["owner"] = swap
+            m["demo"], m["bots"] = True, list(BOT_NAMES)
             game_data["mission"] = m
             bump()
+    return redirect(url_for('mission_admin'))
+
+
+@app.route('/admin/mission/demo_act', methods=['POST'])
+def mission_demo_act():
+    with _lock:
+        m = m_get()
+        if not (m and m.get("demo")):
+            return redirect(url_for('mission_admin'))
+        bots = [b for b in m["bots"] if b in m["agents"]]
+        humans = [n for n in m["agents"] if n not in bots]
+        if m["phase"] == "PLAY":
+            for t in m["tasks"]:
+                if t["owner"] in bots and t["status"] == "open" and t["target"] not in humans:
+                    t.update(status="done", note="(người chơi ảo)", at=now_vn())
+                    m["agents"][t["owner"]]["score"] += PTS["sab"] if t["kind"] == "sab" else PTS["done"]
+            # người ảo bắt quả tang người thật đang nhắm vào mình
+            for t in m["tasks"]:
+                if (t["owner"] in humans and t["target"] in bots and t["kind"] == "mission"
+                        and t["status"] == "open" and random.random() < 0.5):
+                    t.update(status="caught", at=now_vn())
+                    m["agents"][t["target"]]["score"] += PTS["catch"]
+                    m["agents"][t["owner"]]["score"] += PTS["caught"]
+                    m_notify(m, t["owner"], f"🚨 {t['target']} đã bắt quả tang bạn, nhiệm vụ “{t['text'].replace('{t}', t['target'])}” bị huỷ. {PTS['caught']} điểm.")
+        elif m["phase"] == "VOTE":
+            for b in bots:
+                m["agents"][b]["vote"] = random.choice([n for n in m["agents"] if n != b])
+        bump()
     return redirect(url_for('mission_admin'))
 
 
@@ -1937,6 +2047,10 @@ def mission_reveal():
 @app.route('/admin/mission/reset', methods=['POST'])
 def mission_reset():
     with _lock:
+        m = m_get()
+        if m and m.get("demo"):
+            for b in m.get("bots", []):
+                game_data["players"].pop(b, None)
         game_data["mission"] = None
         bump()
     return redirect(url_for('mission_admin'))
