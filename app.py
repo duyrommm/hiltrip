@@ -23,6 +23,7 @@ game_data = {
     "hunter_ctx": "night",    # Thợ Săn chết vì đêm ("night") hay vì treo cổ ("vote")
     "game_id": 0,             # tăng mỗi ván mới → lá bài úp lại
     "spy": None,              # trạng thái ván Truy Tìm Gián Điệp
+    "tod": None,              # Thật hay Thách
     "mission": None,          # Điệp vụ Vũng Tàu, chơi suốt chuyến, không bị xoá khi reset phòng
     "version": 0,             # tăng mỗi khi trạng thái đổi → trình duyệt tự cập nhật
 }
@@ -219,6 +220,23 @@ body.day{ --ink:#f1e9d6; --ink-2:#fffaf0; --line:#ddd0b2; --moon:#2b2a33; --mist
 .avs input:focus-visible + span{outline:3px solid var(--seer);outline-offset:2px}
 .banner{display:block;text-decoration:none;color:var(--moon);font-weight:700;border:1px solid var(--guard);background:var(--ink-2);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px}
 .banner small{display:block;color:var(--mist);font-weight:400;margin-top:2px}
+.center{text-align:center}
+.wheel-wrap{position:relative;width:290px;height:290px;margin:4px auto 18px}
+.wheel{width:100%;height:100%;border-radius:50%;border:4px solid var(--villa);position:relative;box-shadow:0 0 0 6px var(--ink-2)}
+.wi{position:absolute;left:50%;top:50%;font-size:24px;line-height:1}
+.pointer{position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:24px solid var(--villa);z-index:2}
+.hub{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:54px;height:54px;border-radius:50%;background:var(--ink-2);border:3px solid var(--villa);display:flex;align-items:center;justify-content:center;font-size:26px}
+.btn-spin{background:var(--villa);color:#1d1a10;font-size:20px;padding:16px}
+.btn-truth{background:var(--seer);color:#fff;font-size:18px;padding:18px 10px}
+.btn-dare{background:var(--hunter);color:#1d1a10}
+.duo .btn-dare{font-size:18px;padding:18px 10px}
+.btn-ok{background:var(--ok);color:#10261a;font-size:18px}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tod-card{border-radius:18px;padding:22px 18px;margin:6px 0 14px;background:var(--ink-2);border:2px solid var(--seer);text-align:center}
+.tod-card.dare{border-color:var(--hunter)} .tod-card.pen{border-color:var(--wolf)}
+.tod-card .kind{font-weight:700;color:var(--mist);margin-bottom:8px}
+.tod-card p{margin:0;font:600 22px/1.35 "Lora",Georgia,serif}
+.after-spin.hide{visibility:hidden}
 .mini{display:inline-block;width:auto;padding:4px 12px;font-size:13px;font-weight:500}
 .brand a{color:var(--mist);font:500 14px "Be Vietnam Pro",system-ui,sans-serif;text-decoration:none;border:1px solid var(--line);padding:6px 12px;border-radius:999px}
 h1{font:700 30px/1.15 "Lora",Georgia,serif;margin:0 0 6px}
@@ -302,7 +320,35 @@ details summary{cursor:pointer;font-weight:500}
   var app = document.getElementById('app'), live = document.getElementById('live');
   var opened = false;  // lá bài đã lật chưa — giữ nguyên sau mỗi lần cập nhật
 
+  var lastSpin = null, lastDeg = 0;
+  function spinWheel(){
+    var w = app.querySelector('.wheel'); if (!w) return;
+    var id = w.dataset.spin, deg = parseFloat(w.dataset.deg) || 0;
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (lastSpin !== null && id !== lastSpin && deg && !reduce){
+      var res = app.querySelector('.after-spin');
+      if (res) res.classList.add('hide');
+      w.style.transition = 'none'; w.style.transform = 'rotate(' + (lastDeg % 360) + 'deg)';
+      requestAnimationFrame(function(){ requestAnimationFrame(function(){
+        w.style.transition = 'transform 4.2s cubic-bezier(.15,.7,.2,1)';
+        w.style.transform = 'rotate(' + deg + 'deg)';
+      }); });
+      setTimeout(function(){ var r = app.querySelector('.after-spin'); if (r) r.classList.remove('hide'); }, 4300);
+    } else {
+      w.style.transform = 'rotate(' + deg + 'deg)';
+    }
+    lastSpin = id; lastDeg = deg;
+  }
+
   function wire(){
+    spinWheel();
+    app.querySelectorAll('form[data-ajax]').forEach(function(f){
+      f.onsubmit = function(e){
+        e.preventDefault();
+        f.querySelectorAll('button').forEach(function(b){ b.disabled = true; });
+        fetch(f.action, {method:'POST', body:new FormData(f)}).then(poll, poll);
+      };
+    });
     var c = app.querySelector('.card-role');
     if (c){
       if (opened) c.classList.add('open');
@@ -571,6 +617,8 @@ def index():
         username = None
     if username and game_data["phase"] == "SPY":
         return spy_index(username)
+    if username and game_data["phase"] == "TOD" and game_data.get("tod"):
+        return tod_render()
     info = game_data["players"].get(username) if username else None
     phase = game_data["phase"]
     body_cls = "day" if phase in ("DAY", "VOTE", "HUNTER", "END") else ""
@@ -777,6 +825,7 @@ ADMIN_BODY = """
   {% if phase in ('LOBBY', 'END') %}
   <form action="/admin/assign" method="POST"><button type="submit" {{ 'disabled' if total < 3 }}>🐺 Chơi Ma Sói: chia vai, bắt đầu đêm</button></form>
   """ + SPY_START_FORM.replace("Bắt đầu Truy Tìm Gián Điệp", "🕵️ Chơi Truy Tìm Gián Điệp") + """
+  <form action="/admin/tod/start" method="POST"><button type="submit" class="btn-dare" {{ 'disabled' if total < 2 }}>🎡 Chơi Thật hay Thách</button></form>
   {% if total < 3 %}<p class="count" style="margin:0">Cần ít nhất 3 người.</p>{% endif %}
   {% elif phase == 'NIGHT' %}
   <form action="/admin/next_phase/DAY" method="POST"><button type="submit">Gọi trời sáng</button></form>
@@ -803,6 +852,8 @@ ADMIN_BODY = """
 def admin_panel():
     if game_data["phase"] == "SPY":
         return spy_admin()
+    if game_data["phase"] == "TOD" and game_data.get("tod"):
+        return tod_render(admin=True)
     players = game_data["players"]
     phase = game_data["phase"]
     body_cls = "day" if phase in ("DAY", "VOTE", "HUNTER", "END") else ""
@@ -1260,6 +1311,7 @@ SPY_ADMIN = """
   {% else %}
   """ + SPY_START_FORM.replace("Bắt đầu Truy Tìm Gián Điệp", "Ván Gián Điệp mới") + """
   <form action="/admin/assign" method="POST"><button type="submit">Chuyển sang Ma Sói</button></form>
+  <form action="/admin/tod/start" method="POST"><button type="submit" class="btn-dare">🎡 Chơi Thật hay Thách</button></form>
   {% endif %}
   {% if sp.phase != 'END' %}
   <form action="/admin/spy/end" method="POST" data-confirm="Kết thúc ván và lật bài cho mọi người?"><button type="submit" class="btn-ghost">Kết thúc ván, lật bài</button></form>
@@ -2117,6 +2169,441 @@ def mission_reset():
         game_data["mission"] = None
         bump()
     return redirect(url_for('mission_admin'))
+
+
+# ================================================================ THẬT HAY THÁCH (Truth or Dare)
+# Bộ câu cho party dân văn phòng: vui, gần gũi; không hỏi lương, chuyện riêng tư, không nói xấu ai, không ép uống.
+TOD_TRUTH = [
+    "Thói quen kỳ lạ nhất của bạn mà ít ai biết là gì?",
+    "Biệt danh hồi nhỏ của bạn là gì? Vì sao có biệt danh đó?",
+    "Lần gần nhất bạn ngủ quên rồi đi làm trễ là khi nào?",
+    "Món ăn bạn không thích nhưng vẫn phải ăn vì lịch sự là món gì?",
+    "Bạn đã từng ngủ gật trong cuộc họp chưa? Kể đi!",
+    "Nếu được đổi công việc với một người trong phòng một ngày, bạn chọn ai?",
+    "Bài hát “ruột” của bạn mỗi lần đi karaoke là bài gì?",
+    "Ứng dụng bạn mở nhiều nhất trên điện thoại là gì?",
+    "Điều bạn tự hào nhất trong năm nay là gì?",
+    "Nếu trúng số, việc đầu tiên bạn làm là gì?",
+    "Kỷ niệm đáng nhớ nhất của bạn với đồng nghiệp là gì?",
+    "Lần sau đi du lịch, bạn muốn rủ ai trong phòng đi cùng nhất?",
+    "Thần tượng hồi nhỏ của bạn là ai?",
+    "Món bạn nấu ngon nhất là món gì?",
+    "Bạn sợ con vật nào nhất?",
+    "Tật xấu bạn muốn bỏ nhất là gì?",
+    "Nếu được làm sếp một ngày, điều đầu tiên bạn thay đổi là gì?",
+    "Bạn đã từng gửi nhầm tin nhắn cho ai chưa? Chuyện gì xảy ra?",
+    "Ấn tượng đầu tiên của bạn về người đang ngồi bên phải là gì?",
+    "Bộ phim bạn xem đi xem lại nhiều nhất là phim gì?",
+    "Hồi nhỏ bạn mơ ước làm nghề gì?",
+    "Khoảnh khắc buồn cười nhất của chuyến đi này đến giờ là gì?",
+    "Theo bạn, ai trong phòng hát hay nhất?",
+    "Theo bạn, ai trong phòng sẽ dậy muộn nhất sáng mai?",
+    "Bạn từng chạy deadline đến mấy giờ sáng?",
+    "Món đồ vô dụng nhất bạn từng mua online là gì?",
+    "Kỹ năng bí mật mà ít ai biết của bạn là gì?",
+    "Nếu được chọn một siêu năng lực, bạn chọn gì?",
+    "Câu nói cửa miệng của bạn là gì?",
+    "Việc đầu tiên bạn làm mỗi sáng khi tới chỗ làm là gì?",
+    "Nếu được nghỉ phép một tháng, bạn sẽ đi đâu?",
+    "Lần “quê” nhất của bạn ở chỗ làm là khi nào?",
+    "Bạn thích biển hay núi hơn? Vì sao?",
+    "Bộ phim nào từng làm bạn khóc?",
+    "Ai trong phòng là người bạn thấy chăm chỉ nhất?",
+    "Ai trong phòng có gu ăn mặc đẹp nhất theo bạn?",
+    "Bạn từng giả vờ đang bận để né một việc gì chưa?",
+    "Món ăn bạn có thể ăn mỗi ngày không chán là gì?",
+    "Bạn là “cú đêm” hay “chim sớm”?",
+    "Lần gần nhất bạn cười đến chảy nước mắt là vì chuyện gì?",
+    "Bạn đã từng quên tên một người ngay khi họ vừa giới thiệu chưa?",
+    "Nếu phải sống trên đảo hoang và chỉ mang theo 3 thứ, bạn mang gì?",
+    "Bạn thường hát trong nhà tắm bài gì?",
+    "Điều bạn thích nhất ở chỗ làm hiện tại là gì?",
+    "Nếu được quay lại tuổi 18, bạn muốn nhắn nhủ gì với bản thân?",
+    "Ai là người đầu tiên bạn nhắn tin khi có chuyện vui?",
+    "Bạn từng làm rơi điện thoại vào đâu “khó đỡ” nhất?",
+    "Có món gì bạn từng nấu hỏng thảm hại chưa?",
+    "Trò chơi điện thoại bạn từng nghiện nhất là trò gì?",
+    "Một điều bạn muốn học trong năm tới là gì?",
+]
+
+TOD_DARE = [
+    "Hát to một đoạn điệp khúc bài hát bất kỳ.",
+    "Bắt chước cách nói chuyện của một người trong phòng để mọi người đoán là ai.",
+    "Nhảy một điệu bất kỳ trong 15 giây.",
+    "Khen mỗi người trong phòng một câu thật lòng.",
+    "Làm 10 cái squat, vừa làm vừa đếm to.",
+    "Đứng một chân trong 30 giây.",
+    "Kể một câu chuyện cười.",
+    "Diễn tả một con vật bằng hành động, không nói, để mọi người đoán.",
+    "Chụp một tấm selfie mặt thật hài rồi gửi vào nhóm chat chuyến đi.",
+    "Nói liên tục 30 giây về món ăn yêu thích, không được ngập ngừng.",
+    "Giới thiệu người bên phải như MC giới thiệu ngôi sao lên sân khấu.",
+    "Nói câu “Chào mừng đến Vũng Tàu” bằng giọng của một vùng miền khác.",
+    "Tạo 3 dáng người mẫu để người bên cạnh chụp ảnh.",
+    "Làm hướng dẫn viên du lịch, giới thiệu Vũng Tàu trong 30 giây.",
+    "Cười thật to trong 10 giây.",
+    "Hát “Happy Birthday” tặng người bên trái, dù hôm nay không phải sinh nhật họ.",
+    "Để cả phòng đặt cho bạn một biệt danh, dùng đến hết buổi tối.",
+    "Nói chuyện như robot cho đến lượt tiếp theo.",
+    "Bắt chước tiếng con vật do cả phòng chọn.",
+    "Làm 3 động tác thể dục giữa giờ, cả phòng làm theo.",
+    "Kể lại một bộ phim trong 3 câu để mọi người đoán tên phim.",
+    "Dạy cả phòng một động tác nhảy đơn giản.",
+    "Làm ít nhất một người bật cười trong 30 giây.",
+    "Giữ mặt nghiêm túc 20 giây trong khi mọi người chọc cười.",
+    "Lấy nước mời từng người trong phòng.",
+    "Đọc rap tên tất cả mọi người trong phòng.",
+    "Gửi một sticker dễ thương nhất bạn có vào nhóm chat chuyến đi.",
+    "Kể 3 điều bạn biết ơn trong năm nay.",
+    "Đoán tên bài hát người bên trái đang ngân nga (họ được chọn bài).",
+    "Thuyết trình 30 giây vì sao bạn xứng đáng được “nhân viên của chuyến đi”.",
+    "Nói “Vũng Tàu ơi, tui tới rồi!” thật to.",
+    "Làm 5 cái chống đẩy (hoặc 10 cái nhảy dang tay).",
+    "Vừa vỗ tay vừa hát một bài thiếu nhi.",
+    "Bắt chước một quảng cáo truyền hình quen thuộc.",
+    "Đi một vòng quanh phòng theo kiểu người mẫu catwalk.",
+    "Kể một kỷ niệm vui với người ngồi đối diện.",
+    "Chọn một người và cùng nhau tạo dáng chụp một tấm ảnh thật “ngầu”.",
+    "Nói một câu tiếng Anh với giọng thật “Tây”.",
+    "Đặt cho người bên trái một biệt danh dễ thương và giải thích vì sao.",
+    "Uống một ly nước lọc một hơi (nước lọc thôi nhé!).",
+    "Cầm điện thoại giả làm phóng viên phỏng vấn nhanh 2 người.",
+    "Vẽ chân dung người bên phải trong 1 phút rồi cho cả phòng xem.",
+    "Đọc to tin nhắn ngắn gần nhất bạn gửi trong nhóm chat chuyến đi.",
+    "Hát một câu bằng giọng thật trầm, rồi một câu bằng giọng thật cao.",
+    "Đổi chỗ ngồi với người bạn chọn cho đến hết vòng.",
+    "Kể tên 10 món hải sản trong 20 giây.",
+    "Diễn lại cảnh bạn ngủ quên dậy trễ đi làm.",
+    "Làm động tác chào cờ thật nghiêm trang trong 10 giây.",
+    "Khen bản thân 3 câu thật tự tin.",
+    "Dùng 3 từ để mô tả từng người trong phòng.",
+]
+
+TOD_PENALTY = [
+    "Hát một câu bất kỳ.",
+    "Làm 10 cái squat.",
+    "Khen 3 người trong phòng.",
+    "Kể một chuyện vui.",
+    "Đi lấy nước hoặc khăn giấy cho cả bàn.",
+    "Nhảy 10 giây theo nhạc cả phòng bắt.",
+    "Bắt chước tiếng một con vật.",
+    "Đứng một chân trong 20 giây.",
+    "Để cả phòng đặt biệt danh cho bạn đến hết tối.",
+    "Kể 3 điều bạn thích ở chuyến đi này.",
+    "Cười thật to trong 5 giây.",
+    "Làm động tác “tim” với cả phòng.",
+]
+
+TOD_PTS = {"truth": 1, "dare": 2, "skip": 0}
+
+WHEEL_COLORS = ["#2b3466", "#3a2f5e", "#24485a", "#4a3a2a", "#2f4a3a", "#4a2f3f"]
+
+
+def is_admin():
+    return (not ADMIN_KEY) or bool(session.get("is_admin"))
+
+
+def tod_new():
+    return {"phase": "SPIN", "spin_id": 0, "picked": None, "deg": 0, "wheel": [],
+            "kind": None, "card": "", "swapped": False, "penalty": "",
+            "used": {"truth": [], "dare": []}, "custom": {"truth": [], "dare": []},
+            "stats": {}, "history": []}
+
+
+def tod_deck(t, kind):
+    base = TOD_TRUTH if kind == "truth" else TOD_DARE
+    return t["custom"][kind] + base
+
+
+def tod_draw(t, kind, avoid=None):
+    deck = tod_deck(t, kind)
+    fresh = [q for q in deck if q not in t["used"][kind] and q != avoid]
+    if not fresh:                      # dùng hết bộ câu thì xào lại
+        t["used"][kind] = []
+        fresh = [q for q in deck if q != avoid] or deck
+    # câu tự thêm được ưu tiên bốc trước
+    custom = [q for q in fresh if q in t["custom"][kind]]
+    q = random.choice(custom or fresh)
+    t["used"][kind].append(q)
+    return q
+
+
+def tod_stat(t, name):
+    return t["stats"].setdefault(name, {"truth": 0, "dare": 0, "skip": 0, "picked": 0, "pts": 0})
+
+
+def tod_spin(t, forced=None):
+    names = list(game_data["players"].keys())
+    if not names:
+        return
+    if forced in names:
+        pick = forced
+    else:
+        least = min(tod_stat(t, n)["picked"] for n in names)
+        pool = [n for n in names if tod_stat(t, n)["picked"] == least]
+        if len(pool) > 1 and t["picked"] in pool:
+            pool.remove(t["picked"])           # không quay trúng 2 lần liền
+        pick = random.choice(pool)
+    seg = 360 / len(names)
+    idx = names.index(pick)
+    jitter = random.uniform(-0.3, 0.3) * seg
+    t.update(phase="CHOOSE", picked=pick, wheel=names, kind=None, card="", swapped=False, penalty="",
+             spin_id=t["spin_id"] + 1, deg=round(360 * 6 + (360 - (idx + 0.5) * seg) + jitter, 1))
+    tod_stat(t, pick)["picked"] += 1
+
+
+def tod_wheel(t):
+    names = t["wheel"] if t["phase"] != "SPIN" or t["wheel"] else []
+    names = names or list(game_data["players"].keys())
+    n = max(len(names), 1)
+    seg = 360 / n
+    stops = ", ".join(f"{WHEEL_COLORS[i % len(WHEEL_COLORS)]} {i * seg:.2f}deg {(i + 1) * seg:.2f}deg" for i in range(n))
+    items = [{"name": nm, "icon": av(nm) or "🙂", "a": round((i + 0.5) * seg, 2)} for i, nm in enumerate(names)]
+    return {"bg": f"conic-gradient({stops})", "items": items}
+
+
+TOD_BODY = """
+<div data-phase="TOD-{{ t.phase }}" data-game="{{ game_id }}" data-body="">
+<div class="brand"><span>HILtrip Thật hay Thách</span>
+  <span>{% if mission_on and not admin %}<a href="/mission">🎯 Điệp vụ</a> {% endif %}{% if admin %}<a href="/">Người chơi</a>{% else %}<a href="/logout">Thoát</a>{% endif %}</span></div>
+
+{% if t.phase == 'END' %}
+  <h1>🏆 Bảng vàng Thật hay Thách</h1>
+  <p class="sub">Cảm ơn mọi người đã chơi hết mình!</p>
+  <div class="panel">
+    <ul class="roster">{% for title, who in awards %}<li><span>{{ title }}</span><b>{{ av(who) }} {{ who }}</b></li>{% endfor %}</ul>
+  </div>
+  <div class="panel">
+    <h2>Điểm <span class="count">· sự thật +{{ pts.truth }}, thử thách +{{ pts.dare }}</span></h2>
+    <ol class="roster order">{% for n, s in board %}<li><span>{{ av(n) }} {{ n }}</span><span class="count">{{ s.truth }} thật · {{ s.dare }} thách · {{ s.skip }} né · <b>{{ s.pts }}</b></span></li>{% endfor %}</ol>
+  </div>
+{% else %}
+  <div class="wheel-wrap" aria-hidden="true">
+    <div class="pointer"></div>
+    <div class="wheel" data-spin="{{ t.spin_id }}" data-deg="{{ t.deg }}" style="background:{{ wheel.bg }}">
+      {% for it in wheel['items'] %}<span class="wi" style="transform:translate(-50%,-50%) rotate({{ it.a }}deg) translateY(-112px) rotate(-{{ it.a }}deg)">{{ it.icon }}</span>{% endfor %}
+    </div>
+    <div class="hub">🎡</div>
+  </div>
+
+  {% if t.phase == 'SPIN' %}
+    <h1 class="center">Ai sẽ là người tiếp theo?</h1>
+    {% if t.history %}{% set h = t.history[0] %}<p class="sub center">Lượt trước: {{ av(h.name) }} {{ h.name }} {{ h.result }}.</p>{% endif %}
+    <form method="POST" action="/tod/spin" data-ajax><button type="submit" class="btn-spin">🎡 Quay!</button></form>
+    {% if admin %}
+    <form method="POST" action="/admin/tod/spin" class="panel" style="margin-top:14px" data-ajax>
+      <h2>Chỉ định người chơi (không quay ngẫu nhiên)</h2>
+      <select name="who" required><option value="" disabled selected>Chọn người…</option>{% for n in names %}<option value="{{ n }}">{{ av(n) }} {{ n }}</option>{% endfor %}</select>
+      <button type="submit" class="btn-ghost">Chọn người này</button>
+    </form>
+    {% endif %}
+  {% else %}
+    <div class="after-spin">
+      <h1 class="center">{{ av(t.picked) }} {{ t.picked }}{% if t.picked == me %} (bạn!){% endif %}</h1>
+      {% if t.phase == 'CHOOSE' %}
+        {% if t.picked == me or admin %}
+        <p class="sub center">{{ 'Bạn chọn gì?' if t.picked == me else 'Chọn hộ nếu người chơi không cầm điện thoại:' }}</p>
+        <div class="duo">
+          <form method="POST" action="/tod/choose" data-ajax><input type="hidden" name="kind" value="truth"><button type="submit" class="btn-truth">🤫 Sự thật</button></form>
+          <form method="POST" action="/tod/choose" data-ajax><input type="hidden" name="kind" value="dare"><button type="submit" class="btn-dare">🔥 Thử thách</button></form>
+        </div>
+        {% else %}
+        <p class="sub center">đang chọn Sự thật hay Thử thách…</p>
+        {% endif %}
+      {% else %}
+        <div class="tod-card {{ t.kind }}{{ ' pen' if t.phase == 'PENALTY' }}">
+          <div class="kind">{% if t.phase == 'PENALTY' %}🙈 Hình phạt{% elif t.kind == 'truth' %}🤫 Sự thật{% else %}🔥 Thử thách{% endif %}</div>
+          <p>{{ t.penalty if t.phase == 'PENALTY' else t.card }}</p>
+        </div>
+        {% if t.picked == me or admin %}
+          {% if t.phase == 'CARD' %}
+          <form method="POST" action="/tod/done" data-ajax><button type="submit" class="btn-ok">✅ Xong (+{{ pts[t.kind] }})</button></form>
+          <div class="duo" style="margin-top:10px">
+            <form method="POST" action="/tod/swap" data-ajax><button type="submit" class="btn-ghost" {{ 'disabled' if t.swapped }}>🔁 {{ 'Đã đổi câu' if t.swapped else 'Đổi câu khác' }}</button></form>
+            <form method="POST" action="/tod/skip" data-ajax><button type="submit" class="btn-ghost">🙈 Bỏ qua</button></form>
+          </div>
+          {% else %}
+          <form method="POST" action="/tod/done" data-ajax><button type="submit" class="btn-ok">Đã chịu phạt, quay tiếp</button></form>
+          {% endif %}
+        {% else %}
+          <p class="sub center" style="margin-top:12px">{{ 'Chờ ' ~ t.picked ~ ' chịu phạt…' if t.phase == 'PENALTY' else 'Cả phòng cùng xem ' ~ t.picked ~ ' làm nhé!' }}</p>
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if board %}
+  <div class="panel" style="margin-top:18px">
+    <h2>Bảng điểm</h2>
+    <ol class="roster order">{% for n, s in board[:5] %}<li class="{{ 'me' if n == me }}"><span>{{ av(n) }} {{ n }}</span><b>{{ s.pts }}</b></li>{% endfor %}</ol>
+  </div>
+  {% endif %}
+
+  {% if admin %}
+  <form method="POST" action="/admin/tod/custom" class="panel stack" style="margin-top:14px">
+    <h2>Thêm câu riêng của nhóm <span class="count">· đã thêm {{ t.custom.truth|length }} thật, {{ t.custom.dare|length }} thách</span></h2>
+    <select name="kind" required><option value="truth">🤫 Sự thật</option><option value="dare">🔥 Thử thách</option></select>
+    <input type="text" name="text" maxlength="160" required placeholder="Ví dụ: Kể lại vụ lạc đường đi chợ Xóm Lưới" autocomplete="off">
+    <button type="submit" class="btn-ghost">Thêm vào bộ câu (được bốc trước)</button>
+  </form>
+  {% endif %}
+{% endif %}
+
+{% if admin %}
+<div class="panel stack" style="margin-top:14px">
+  {% if t.phase == 'END' %}
+  <form action="/admin/tod/start" method="POST"><button type="submit" class="btn-seer">🎡 Chơi lại Thật hay Thách</button></form>
+  {% else %}
+  <form action="/admin/tod/end" method="POST" data-confirm="Kết thúc và xem bảng vàng?"><button type="submit" class="btn-ghost">🏆 Kết thúc, xem bảng vàng</button></form>
+  {% endif %}
+  <form action="/admin/lobby" method="POST" data-confirm="Về phòng chờ để chọn trò khác?"><button type="submit" class="btn-ghost">Về phòng chờ, chọn trò khác</button></form>
+</div>
+{% endif %}
+</div>
+"""
+
+
+def tod_board(t):
+    return sorted(((n, s) for n, s in t["stats"].items() if s["picked"]), key=lambda kv: -kv[1]["pts"])
+
+
+def tod_awards(t):
+    st = [(n, s) for n, s in t["stats"].items() if s["picked"]]
+    out = []
+    for key, title in (("dare", "🔥 Dũng cảm nhất"), ("truth", "🤫 Thật thà nhất"), ("skip", "🙈 Hay né nhất")):
+        best = max(st, key=lambda kv: kv[1][key], default=None)
+        if best and best[1][key] > 0:
+            out.append((f"{title} ({best[1][key]} lần)", best[0]))
+    return out
+
+
+def tod_render(admin=False):
+    t = game_data["tod"]
+    ctx = dict(t=t, me=session.get('username'), admin=admin, game_id=game_data["game_id"],
+               wheel=tod_wheel(t), pts=TOD_PTS, board=tod_board(t), names=list(game_data["players"]),
+               mission_on=bool(game_data.get("mission")), awards=tod_awards(t) if t["phase"] == "END" else [])
+    body = render_template_string(TOD_BODY, **ctx)
+    return page("HILtrip Thật hay Thách", body, "", "/admin?partial=1" if admin else "/?partial=1")
+
+
+def tod_can_act(t):
+    return session.get('username') == t["picked"] or is_admin()
+
+
+@app.route('/admin/tod/start', methods=['POST'])
+def tod_start():
+    with _lock:
+        if game_data["players"]:
+            game_data["tod"] = tod_new()
+            game_data["phase"] = "TOD"
+            game_data["game_id"] += 1
+            bump()
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/tod/spin', methods=['POST'])
+def tod_spin_route():
+    with _lock:
+        t = game_data.get("tod")
+        if (game_data["phase"] == "TOD" and t and t["phase"] == "SPIN"
+                and (session.get('username') in game_data["players"] or is_admin())):
+            tod_spin(t)
+            bump()
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/tod/spin', methods=['POST'])
+def tod_force_spin():
+    with _lock:
+        t = game_data.get("tod")
+        if game_data["phase"] == "TOD" and t and t["phase"] == "SPIN":
+            tod_spin(t, forced=request.form.get("who"))
+            bump()
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/tod/choose', methods=['POST'])
+def tod_choose():
+    kind = request.form.get("kind")
+    with _lock:
+        t = game_data.get("tod")
+        if t and game_data["phase"] == "TOD" and t["phase"] == "CHOOSE" and kind in ("truth", "dare") and tod_can_act(t):
+            t.update(phase="CARD", kind=kind, card=tod_draw(t, kind))
+            bump()
+    return redirect(url_for('index'))
+
+
+@app.route('/tod/swap', methods=['POST'])
+def tod_swap():
+    with _lock:
+        t = game_data.get("tod")
+        if t and game_data["phase"] == "TOD" and t["phase"] == "CARD" and not t["swapped"] and tod_can_act(t):
+            t.update(card=tod_draw(t, t["kind"], avoid=t["card"]), swapped=True)
+            bump()
+    return redirect(url_for('index'))
+
+
+@app.route('/tod/skip', methods=['POST'])
+def tod_skip():
+    with _lock:
+        t = game_data.get("tod")
+        if t and game_data["phase"] == "TOD" and t["phase"] == "CARD" and tod_can_act(t):
+            s = tod_stat(t, t["picked"])
+            s["skip"] += 1
+            t["history"].insert(0, {"name": t["picked"], "kind": t["kind"], "text": t["card"], "result": "đã né và chịu phạt"})
+            del t["history"][10:]
+            t.update(phase="PENALTY", penalty=random.choice(TOD_PENALTY))
+            bump()
+    return redirect(url_for('index'))
+
+
+@app.route('/tod/done', methods=['POST'])
+def tod_done():
+    with _lock:
+        t = game_data.get("tod")
+        if t and game_data["phase"] == "TOD" and t["phase"] in ("CARD", "PENALTY") and tod_can_act(t):
+            if t["phase"] == "CARD":
+                s = tod_stat(t, t["picked"])
+                s[t["kind"]] += 1
+                s["pts"] += TOD_PTS[t["kind"]]
+                label = "nói thật" if t["kind"] == "truth" else "hoàn thành thử thách"
+                t["history"].insert(0, {"name": t["picked"], "kind": t["kind"], "text": t["card"], "result": label})
+                del t["history"][10:]
+            t.update(phase="SPIN", kind=None, card="", penalty="")
+            bump()
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/tod/custom', methods=['POST'])
+def tod_custom():
+    kind = request.form.get("kind")
+    text = (request.form.get("text") or "").strip()[:160]
+    with _lock:
+        t = game_data.get("tod")
+        if t and kind in ("truth", "dare") and text and text not in t["custom"][kind]:
+            t["custom"][kind].append(text)
+            bump()
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/tod/end', methods=['POST'])
+def tod_end():
+    with _lock:
+        t = game_data.get("tod")
+        if t and game_data["phase"] == "TOD":
+            t["phase"] = "END"
+            bump()
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/lobby', methods=['POST'])
+def admin_lobby():
+    with _lock:
+        game_data["phase"] = "LOBBY"
+        for i in game_data["players"].values():
+            i.update(role="Villager", alive=True, target=None, acted=False, vote=None)
+        bump()
+    return redirect(url_for('admin_panel'))
 
 
 # nạp trạng thái đã lưu (nếu có DATABASE_URL)
