@@ -41,7 +41,7 @@ ROLES = {
 
 SPY_START_FORM = """
 <form action="/admin/spy/start" method="POST" class="stack">
-  <details class="note"><summary>Tự nhập cặp từ (không bắt buộc)</summary>
+  <details class="note"><summary>Quản trò tự nhập từ (nếu muốn)</summary>
     <div style="margin-top:12px">
       <input type="text" name="civ" maxlength="40" placeholder="Từ của Dân, ví dụ: Cà phê" autocomplete="off">
       <input type="text" name="spy" maxlength="40" placeholder="Từ của Gián điệp, ví dụ: Trà sữa" autocomplete="off">
@@ -237,6 +237,7 @@ body.day{ --ink:#f1e9d6; --ink-2:#fffaf0; --line:#ddd0b2; --moon:#2b2a33; --mist
 .tod-card .kind{font-weight:700;color:var(--mist);margin-bottom:8px}
 .tod-card p{margin:0;font:600 22px/1.35 "Lora",Georgia,serif}
 .after-spin.hide{visibility:hidden}
+button.armed{outline:3px solid var(--wolf);outline-offset:2px}
 .mini{display:inline-block;width:auto;padding:4px 12px;font-size:13px;font-weight:500}
 .brand a{color:var(--mist);font:500 14px "Be Vietnam Pro",system-ui,sans-serif;text-decoration:none;border:1px solid var(--line);padding:6px 12px;border-radius:999px}
 h1{font:700 30px/1.15 "Lora",Georgia,serif;margin:0 0 6px}
@@ -354,8 +355,30 @@ details summary{cursor:pointer;font-weight:500}
       if (opened) c.classList.add('open');
       c.onclick = function(){ opened = !opened; c.classList.toggle('open', opened); document.body.classList.toggle('revealed', opened); };
     }
+    // Xác nhận bằng cách chạm 2 lần (không dùng hộp thoại confirm của trình duyệt,
+    // vì trình duyệt trong Zalo/Messenger hoặc trình duyệt đã chặn hộp thoại sẽ không hiện)
     app.querySelectorAll('form[data-confirm]').forEach(function(f){
-      f.onsubmit = function(){ return confirm(f.dataset.confirm); };
+      f.onsubmit = function(e){
+        if (f.dataset.armed === '1') return true;
+        e.preventDefault();
+        var b = f.querySelector('button'); if (!b) return false;
+        var mini = b.classList.contains('mini');
+        f.dataset.armed = '1';
+        var old = b.innerHTML;
+        b.innerHTML = mini ? 'Chắc chưa?' : '⚠️ Chạm lần nữa để xác nhận';
+        b.classList.add('armed');
+        var note = null;
+        if (!mini){
+          note = document.createElement('p');
+          note.className = 'count'; note.style.margin = '6px 0 0'; note.textContent = f.dataset.confirm;
+          f.appendChild(note);
+        }
+        setTimeout(function(){
+          f.dataset.armed = ''; b.innerHTML = old; b.classList.remove('armed');
+          if (note) note.remove();
+        }, 5000);
+        return false;
+      };
     });
     var cls = app.querySelector('[data-body]');
     if (cls) document.body.className = cls.dataset.body;
@@ -364,6 +387,7 @@ details summary{cursor:pointer;font-weight:500}
 
   function refresh(){
     if (app.querySelector('form[action="/join"]')) return;
+    if (app.querySelector('form[data-armed="1"]')) { setTimeout(refresh, 1500); return; }
     var a = document.activeElement;
     if (busy || (a && (a.tagName === 'SELECT' || a.tagName === 'INPUT'))) { setTimeout(refresh, 1500); return; }
     busy = true;
@@ -1066,8 +1090,8 @@ import unicodedata
 WORD_PAIRS = [
     ("Cà phê", "Trà sữa"), ("Bánh mì", "Bánh bao"), ("Phở", "Bún bò"), ("Biển", "Hồ bơi"),
     ("Núi", "Đồi"), ("Mèo", "Chó"), ("Xe máy", "Xe đạp"), ("Điện thoại", "Máy tính bảng"),
-    ("Facebook", "Instagram"), ("Zalo", "Messenger"), ("Bia", "Rượu"), ("Karaoke", "Quán bar"),
-    ("Tết", "Trung thu"), ("Áo dài", "Áo bà ba"), ("Nón lá", "Mũ bảo hiểm"), ("Sầu riêng", "Mít"),
+    ("Facebook", "Threads"), ("Zalo", "Messenger"), ("Bia", "Rượu"), ("Karaoke", "Quán bar"),
+    ("Tết âm lịch", "Trung thu"), ("Áo dài", "Áo bà ba"), ("Nón lá", "Mũ bảo hiểm"), ("Sầu riêng", "Mít"),
     ("Xoài", "Đu đủ"), ("Dưa hấu", "Thanh long"), ("Gà rán", "Gà nướng"), ("Lẩu", "Đồ nướng"),
     ("Bóng đá", "Bóng chuyền"), ("Cầu lông", "Tennis"), ("Bơi lội", "Lặn biển"), ("Máy bay", "Tàu hoả"),
     ("Khách sạn", "Homestay"), ("Đà Lạt", "Sa Pa"), ("Phú Quốc", "Nha Trang"), ("Netflix", "YouTube"),
@@ -1076,8 +1100,8 @@ WORD_PAIRS = [
     ("Trà đá", "Nước mía"), ("Kem", "Sữa chua"), ("Bánh tráng trộn", "Gỏi cuốn"), ("Hủ tiếu", "Mì Quảng"),
     ("Chè", "Tào phớ"), ("Bánh xèo", "Bánh khọt"), ("Vịt", "Ngỗng"), ("Hổ", "Sư tử"),
     ("Bác sĩ", "Y tá"), ("Giáo viên", "Gia sư"), ("Ca sĩ", "Diễn viên"), ("Son môi", "Phấn má"),
-    ("Ô", "Áo mưa"), ("Dép", "Giày"), ("Gối", "Chăn"), ("Tủ lạnh", "Tủ đông"),
-    ("Máy giặt", "Máy rửa bát"), ("Mặt trăng", "Mặt trời"), ("Mưa", "Bão"), ("Lửa trại", "Pháo hoa"),
+    ("Ô", "Áo mưa"), ("Dép", "Giày"), ("Gối", "Chăn/Mền"), ("Tủ lạnh", "Tủ đông"),
+    ("Máy giặt", "Máy rửa chén"), ("Mặt trăng", "Mặt trời"), ("Mưa", "Bão"), ("Lửa trại", "Pháo hoa"),
     ("Lều", "Võng"), ("Kính râm", "Kính cận"), ("Nhẫn", "Dây chuyền"), ("Đám cưới", "Đám hỏi"),
     ("Sinh nhật", "Kỷ niệm"), ("Ma", "Zombie"), ("Ông già Noel", "Táo quân"), ("Bánh chưng", "Bánh tét"),
     ("Bãi Trước", "Bãi Sau"), ("Vali", "Balo"), ("Kem chống nắng", "Sữa dưỡng thể"), ("Sạc dự phòng", "Cục sạc"),
@@ -1087,7 +1111,7 @@ WORD_PAIRS = [
     ("Áo thun", "Áo sơ mi"), ("Giày thể thao", "Dép sandal"), ("Chăn bông", "Chiếu điều hòa"), ("Gội đầu", "Tắm hoa sen"),
     ("Nồi cơm điện", "Nồi chiên không dầu"), ("Bàn là", "Máy sấy tóc"), ("Bếp từ", "Bếp ga"), ("Máy hút bụi", "Chổi quét nhà"),
     ("Cốc thủy tinh", "Ca nhựa"), ("Móc phơi đồ", "Kẹp quần áo"), ("Bút bi", "Bút chì"), ("Gôm tẩy", "Bút xóa"),
-    ("Sổ tay", "Giấy note"), ("Kẹp giấy", "Dập ghim"), ("Kéo", "Dao rọc giấy"), ("Bìa hồ sơ", "Cặp tài liệu"),
+    ("Sổ tay", "Giấy note"), ("Kẹp giấy", "Dập ghim"), ("Kéo", "Dao rọc giấy"), ("Bìa hồ sơ", "Bao thư"),
     ("Bảng trắng", "Bút lông bảng"), ("Thước kẻ", "Compa"), ("Siêu thị", "Chợ đêm"), ("Máy giặt", "Tiệm giặt ủi"),
     ("Đồng hồ báo thức", "Chuông nhà thờ"), ("Sofa", "Ghế salon"), ("Thang máy", "Thang bộ"), ("Lịch treo tường", "Sổ tay"),
     ("Tủ lạnh", "Thùng đá"), ("Bàn ăn", "Bàn tiệc"), ("Bàn chải răng", "Tăm xỉa"), ("Xích đu", "Ghế bập bênh"),
@@ -1492,48 +1516,48 @@ MISSION_STAGES = [
      "tip": "Bàn ăn đông người là chỗ dễ giăng bẫy nhất."},
     {"key": "villa",  "name": "Villa và biển",      "when": "14h, 28/11",     "icon": "🏖️",
      "tip": "Lúc nhận phòng, tắm biển, nghỉ ngơi."},
-    {"key": "cho",    "name": "Chợ Xóm Lưới",       "when": "16h, 28/11",     "icon": "🦀",
-     "tip": "Hai team đi chợ, mỗi team đều có thể có gián điệp."},
+    {"key": "cho",    "name": "Chợ & chuẩn bị tiệc", "when": "16h, 28/11",     "icon": "🦀",
+     "tip": "Một team đi chợ Xóm Lưới, một team ở villa chuẩn bị. Mục tiêu ở team khác thì làm qua nhóm chat hoặc chờ gặp lại, nhiệm vụ chưa xong vẫn giữ sang chặng tiệc."},
     {"key": "tiec",   "name": "Tiệc nướng",         "when": "18h, 28/11",     "icon": "🍢",
      "tip": "Chặng cuối trước giờ lật bài."},
 ]
 
 MISSIONS = {
     "road": [
-        "Khiến {t} gửi một sticker hình con vật vào nhóm chat chung.",
+        "Khiến {t} gửi một sticker hoặc hình ảnh con vật bất kỳ vào nhóm chat chung.",
         "Khiến {t} nhắn vào nhóm chat một câu có chữ “biển”.",
         "Khiến {t} gửi một tấm ảnh đang trên đường vào nhóm chat.",
         "Khiến {t} trả lời tin nhắn của bạn bằng đúng một chữ “Ok”.",
         "Khiến {t} thả tim một tin nhắn của bạn trong nhóm chat.",
         "Khiến {t} nhắn hoặc gọi hỏi bạn “tới đâu rồi?”.",
         "Khiến {t} nhắn vào nhóm chat tên một món muốn ăn ở Vũng Tàu.",
-        "Khiến {t} gửi một biểu tượng mặt trời ☀️ vào nhóm chat.",
+        "Khiến {t} gửi một biểu tượng mặt khóc/mặt buồn vào nhóm chat.",
         "Khiến {t} nhắn vào nhóm chat một câu có chữ “cà phê”.",
         "Khiến {t} gửi một tin nhắn thoại cho bạn.",
-        "Khiến {t} nhắn hỏi bạn đã ăn sáng chưa.",
+        "Khiến {t} nhắn hỏi bạn đã ăn gì chưa.",
         "Khiến {t} gửi vào nhóm chat ảnh đôi dép hoặc đôi giày đang mang.",
     ],
     "umi": [
         "Khiến {t} gọi đúng món nước giống bạn.",
         "Khiến {t} cho bạn nếm thử nước của họ.",
-        "Khiến {t} chụp ảnh ly nước của họ.",
+        "Khiến {t} chụp ảnh ly nước của bạn.",
         "Khiến {t} đổi chỗ ngồi với bạn.",
         "Khiến {t} khen view của quán.",
         "Khiến {t} hỏi mật khẩu wifi của quán.",
         "Khiến {t} nhận xét nước của họ ngọt hay không ngọt.",
         "Khiến {t} chụp giùm bạn một tấm ảnh với biển phía sau.",
         "Khiến {t} kể đoàn của họ đi đường có gì vui.",
-        "Khiến {t} chỉ cho bạn xem một tấm ảnh trong điện thoại của họ.",
+        "Khiến {t} chỉ cho mình bạn xem một tấm ảnh trong điện thoại của họ.",
     ],
     "lau": [
         "Khiến {t} gắp đồ ăn vào chén bạn.",
         "Khiến {t} rót nước cho bạn.",
-        "Khiến {t} khen nồi lẩu ngon.",
+        "Khiến {t} khen nồi lẩu hoặc món ăn bất kỳ hiện tại ngon.",
         "Khiến {t} cụng ly với bạn hai lần.",
         "Khiến {t} đưa giùm bạn chén nước chấm hoặc cái muỗng.",
         "Khiến {t} nói chữ “cay”.",
         "Khiến {t} đề nghị gọi thêm một món.",
-        "Khiến {t} chụp ảnh nồi lẩu.",
+        "Khiến {t} chụp ảnh nồi lẩu hoặc món ăn bất kỳ hiện tại.",
         "Khiến {t} hỏi bạn “ăn no chưa?”.",
         "Khiến {t} đưa giùm bạn khăn giấy.",
     ],
@@ -1543,35 +1567,27 @@ MISSIONS = {
         "Khiến {t} nhận xét về phòng của bạn.",
         "Khiến {t} xuống nước cùng lúc với bạn.",
         "Khiến {t} hỏi mượn bạn một món đồ (kem chống nắng, khăn, dép…).",
-        "Khiến {t} chỉ cho bạn thấy một con thuyền ngoài biển.",
-        "Khiến {t} viết hoặc vẽ gì đó trên cát.",
         "Khiến {t} ngồi nghỉ cạnh bạn ít nhất 5 phút.",
         "Khiến {t} khen villa đẹp.",
         "Khiến {t} rủ bạn đi dạo biển.",
     ],
     "cho": [
-        "Khiến {t} hỏi giá một món hải sản.",
-        "Khiến {t} chọn giùm bạn một con hải sản.",
-        "Khiến {t} trả giá giùm bạn một món.",
-        "Khiến {t} cầm giùm bạn túi đồ chợ.",
+        "Khiến {t} đoán giá một ký hải sản (ghẹ, mực, tôm…).",
+        "Khiến {t} chọn giúp bạn một món ăn liên quan đến hải sản.",
+        "Khiến {t} cầm giùm bạn món đồ bất kỳ ít nhất 5 phút.",
         "Khiến {t} giải thích cho bạn cách chọn hải sản tươi.",
-        "Khiến {t} chụp ảnh với một con cá, cua hoặc ghẹ.",
-        "Khiến {t} đề nghị mua thêm một món không có trong danh sách.",
-        "Khiến {t} nếm thử một món ăn vặt ở chợ.",
-        "Khiến {t} hỏi bạn “mua vậy đủ chưa?”.",
-        "Khiến {t} đọc to giá tiền trên một tấm bảng ở chợ.",
+        "Khiến {t} gửi vào nhóm chat một tấm ảnh có hải sản hoặc đồ ăn.",
+        "Khiến {t} gợi ý một món nên có trong tiệc nướng tối nay.",
+        "Khiến {t} nếm thử một món ăn vặt bất kỳ.",
+        "Khiến {t} đọc to tên 1 người bất kỳ trong nhóm.",
     ],
     "tiec": [
-        "Khiến {t} nướng giùm bạn một xiên.",
-        "Khiến {t} mời bạn ăn thử một miếng họ vừa nướng.",
         "Khiến {t} hát theo một câu của bài đang mở.",
         "Khiến {t} nâng ly và nói một câu chúc.",
-        "Khiến {t} khen món bạn nướng.",
         "Khiến {t} kể một chuyện vui trong chuyến đi.",
-        "Khiến {t} lấy giùm bạn một lon nước.",
-        "Khiến {t} chụp ảnh cùng bạn bên bếp nướng.",
-        "Khiến {t} nhờ bạn lật giùm một xiên nướng.",
-        "Khiến {t} chấm thử nước sốt bạn pha.",
+        "Khiến {t} lấy giùm bạn một loại nước uống bất kỳ.",
+        "Khiến {t} chụp ảnh cùng bạn.",
+        "Khiến {t} chấm thử nước sốt bạn đưa.",
     ],
     "any": [
         "Khiến {t} nói từ “tuyệt vời”.",
@@ -1582,7 +1598,7 @@ MISSIONS = {
         "Khiến {t} kể tên món ăn họ thích nhất.",
         "Khiến {t} nhắc đến tên một con vật.",
         "Khiến {t} cười thành tiếng vì câu chuyện của bạn.",
-        "Khiến {t} đội thử nón hoặc đeo thử kính của bạn.",
+        "Khiến {t} sử dụng 1 món đồ bất kỳ của bạn.",
         "Khiến {t} đọc to một dòng chữ trên biển hiệu hoặc menu.",
         "Khiến {t} chỉ đường hoặc chỉ chỗ cho bạn.",
         "Khiến {t} hỏi bạn “thật không?”.",
@@ -1596,28 +1612,28 @@ MISSIONS = {
         "Khiến {t} kể một kỷ niệm hồi đi học.",
         "Khiến {t} hỏi bạn “ăn gì chưa?”.",
         "Khiến {t} dùng từ “chill”.",
-        "Khiến {t} gọi tên bạn ba lần trong một chặng.",
+        "Khiến {t} gọi tên bạn ba lần trong 60 phút.",
         "Khiến {t} khen ảnh bạn chụp.",
     ],
 }
 
 # Nhiệm vụ riêng của Gián điệp: không có mục tiêu, tác động nhẹ lên cả nhóm
 SABOTAGE = {
-    "road": ["Khiến ít nhất 3 người gửi cùng một loại sticker vào nhóm chat.",
+    "road": ["Khiến ít nhất 2 người gửi cùng một loại sticker vào nhóm chat.",
              "Khiến ít nhất 2 người nhắn trong nhóm chat rằng họ đói bụng."],
     "any": [
         "Khiến cả bàn (ít nhất 4 người) cụng ly cùng một lúc.",
         "Khiến 2 người khác đổi chỗ ngồi cho nhau.",
-        "Khiến ít nhất 3 người cùng tạo dáng chữ V trong một tấm ảnh.",
+        "Khiến ít nhất 4 người cùng tạo trái tim trong một tấm ảnh.",
         "Khiến một người gọi đúng món mà bạn gợi ý.",
-        "Khiến ít nhất 2 người hát cùng một bài.",
+        "Khiến ít nhất 2 người hát cùng một đoạn bài hát bất kỳ (tối thiểu 2 câu hát).",
         "Rủ được 3 người cùng uống một loại nước.",
         "Khiến cả nhóm vỗ tay cùng một lúc.",
-        "Khiến 2 người tranh luận vui về một chủ đề bạn khơi ra (ví dụ: biển Vũng Tàu hay Nha Trang đẹp hơn).",
+        "Khiến 2 người tranh luận vui về một chủ đề bạn khơi mào (ví dụ: biển Vũng Tàu hay Nha Trang đẹp hơn).",
         "Khiến ít nhất 3 người cùng nhìn lên trời một lúc.",
         "Khiến cả đoàn chụp một tấm ảnh nhóm theo kiểu bạn đề xuất.",
         "Khiến một người ngồi vào đúng chỗ bạn đã chọn sẵn cho họ.",
-        "Khiến ít nhất 3 người cùng nói “Vũng Tàu ơi!”.",
+        "Khiến ít nhất 3 người nói “I love you!”.",
     ],
 }
 
@@ -2280,18 +2296,26 @@ TOD_DARE = [
 ]
 
 TOD_PENALTY = [
-    "Hát một câu bất kỳ.",
-    "Làm 10 cái squat.",
-    "Khen 3 người trong phòng.",
-    "Kể một chuyện vui.",
-    "Đi lấy nước hoặc khăn giấy cho cả bàn.",
-    "Nhảy 10 giây theo nhạc cả phòng bắt.",
-    "Bắt chước tiếng một con vật.",
-    "Đứng một chân trong 20 giây.",
-    "Để cả phòng đặt biệt danh cho bạn đến hết tối.",
-    "Kể 3 điều bạn thích ở chuyến đi này.",
-    "Cười thật to trong 5 giây.",
-    "Làm động tác “tim” với cả phòng.",
+    "Uống cạn một ly (bia hay nước ngọt tuỳ bạn) và hô “Dô!” thật to.",
+    "Bị cả phòng hỏi liền 3 câu Sự thật, không được né câu nào.",
+    "Lần sau bị quay trúng, bạn bắt buộc chọn Thử thách.",
+    "Đổi ảnh đại diện Zalo thành ảnh do cả phòng chọn, giữ trong 1 tiếng.",
+    "Đăng story “Tui thua Thật hay Thách ở Vũng Tàu 🥲” và giữ đến sáng mai.",
+    "Để người bên phải soạn một tin nhắn gửi vào nhóm chat chuyến đi bằng điện thoại của bạn (cả phòng duyệt trước khi gửi).",
+    "Làm phục vụ: rót nước cho cả bàn đến hết vòng sau.",
+    "Hát một câu tình ca thật “diễn sâu”, có động tác tay.",
+    "Nhảy 20 giây theo bài cả phòng chọn, không được dừng.",
+    "Đi kiểu vịt một vòng quanh bàn, vừa đi vừa kêu “quạc quạc”.",
+    "Cắn một miếng chanh mà không được nhăn mặt.",
+    "Dán giấy note do cả phòng viết lên trán, giữ đến hết lượt sau.",
+    "Gọi điện cho một người trong đoàn do cả phòng chọn và nói: “Cứu tui với, tui thua rồi!”",
+    "Phát biểu cảm nghĩ 30 giây như vừa nhận giải Oscar.",
+    "Làm 15 cái squat, mỗi cái hô tên một người trong phòng.",
+    "Giữ tư thế plank 30 giây trong khi cả phòng đếm.",
+    "Bắt chước điệu bộ của một người do cả phòng chọn, đến khi có người đoán đúng.",
+    "Gửi một tin nhắn thoại hát “Happy Birthday” vào nhóm chat chuyến đi.",
+    "Cho cả phòng xem tấm selfie “xấu” nhất bạn còn giữ trong máy (bạn tự chọn).",
+    "Đến hết lượt sau, câu nào bạn nói cũng phải kết thúc bằng “nha người đẹp”.",
 ]
 
 TOD_PTS = {"truth": 1, "dare": 2, "skip": 0}
