@@ -3,11 +3,15 @@ import json
 import random
 import threading
 import logging
+import secrets
+import time
 from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template_string, request, redirect, url_for, session, abort, jsonify
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)   # đặt SECRET_KEY trên Render (Environment)
+# Phiên đăng nhập sống 7 ngày: tắt trình duyệt mở lại vẫn vào đúng người chơi
+app.permanent_session_lifetime = timedelta(days=7)
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")   # đặt ADMIN_KEY trên Render → /admin cần ?key=<ADMIN_KEY> một lần
 
 _lock = threading.Lock()
@@ -25,6 +29,7 @@ game_data = {
     "spy": None,              # trạng thái ván Truy Tìm Gián Điệp
     "tod": None,              # Thật hay Thách
     "mission": None,          # Điệp vụ Vũng Tàu, chơi suốt chuyến, không bị xoá khi reset phòng
+    "owners": {},             # tên người chơi -> mã trình duyệt đã tạo tên đó (chống trùng tên)
     "version": 0,             # tăng mỗi khi trạng thái đổi → trình duyệt tự cập nhật
 }
 
@@ -178,12 +183,49 @@ def check_win():
     return True
 
 
+LAST_SEEN = {}        # tên -> lần cuối máy của người đó còn mở app (chỉ trong bộ nhớ)
+ACTIVE_SECS = 25      # trong khoảng này coi như người đó đang online
+
+
+def browser_id():
+    """Mỗi trình duyệt có một mã riêng, giữ 7 ngày trong cookie."""
+    b = session.get("bid")
+    if not b:
+        b = secrets.token_hex(8)
+        session["bid"] = b
+    session.permanent = True
+    return b
+
+
+def name_known(name):
+    m = game_data.get("mission")
+    return name in game_data["players"] or bool(m and name in m["agents"])
+
+
+@app.before_request
+def touch_session():
+    """Ghi nhận người chơi đang online; người chơi cũ chưa có chủ thì gán chủ là trình duyệt này."""
+    u = session.get("username")
+    if not u:
+        return None
+    owners = game_data.setdefault("owners", {})
+    bid = browser_id()
+    if owners.get(u) is None:
+        owners[u] = bid
+    if owners.get(u) == bid:
+        LAST_SEEN[u] = time.time()
+    else:
+        session.pop("username", None)   # tên đã được vào lại trên máy khác: máy này về trang nhập tên
+    return None
+
+
 @app.before_request
 def guard_admin():
     if not ADMIN_KEY or not request.path.startswith("/admin"):
         return None
     if request.args.get("key") == ADMIN_KEY:
         session["is_admin"] = True
+        session.permanent = True
     if not session.get("is_admin"):
         abort(403)
     return None
@@ -468,9 +510,21 @@ PLAYER_BODY = """
 <div class="brand"><span>{{ 'HILtrip' if (not me or phase == 'LOBBY') else 'HILtrip Ma Sói' }}</span>
   <span>{% if mission_on %}<a href="/mission">🎯 Điệp vụ</a> {% endif %}{% if me %}<a href="/logout">Thoát</a>{% endif %}</span></div>
 
-{% if not me %}
+{% if not me and join_msg and join_msg[0] == 'confirm' %}
+  <h1>Bạn vào lại?</h1>
+  <p class="sub">Tên <b>{{ av(join_msg[1]) }} {{ join_msg[1] }}</b> đã có trong phòng, đang dùng trên một máy hoặc trình duyệt khác.</p>
+  <div class="panel stack">
+    <p style="margin:0">Nếu đó là bạn (đổi máy, mở lại bằng trình duyệt khác…), bấm <b>Đúng, là tôi</b> để vào lại đúng vai và điểm của mình.</p>
+    <form method="POST" action="/join"><input type="hidden" name="username" value="{{ join_msg[1] }}"><input type="hidden" name="confirm" value="1">{% if keep_avatar %}<input type="hidden" name="avatar" value="{{ keep_avatar }}">{% endif %}
+      <button type="submit">Đúng, là tôi</button></form>
+    <a class="btn btn-ghost" href="/">Không phải, tôi chọn tên khác</a>
+  </div>
+
+{% elif not me %}
   <h1>Vào phòng chơi</h1>
   <p class="sub">Chọn một icon và nhập tên để mọi người nhận ra bạn.</p>
+  {% if join_msg and join_msg[0] == 'busy' %}<div class="note bad" style="margin-bottom:14px">Tên “{{ join_msg[1] }}” đang có người dùng trên máy khác. Bạn chọn tên khác nhé, ví dụ thêm họ hoặc biệt danh.</div>{% endif %}
+  {% if in_app %}<div class="note" style="margin-bottom:14px">Bạn đang mở link trong Zalo/Messenger. Nên bấm <b>⋯ → Mở bằng trình duyệt</b> (Chrome/Safari) để lần sau mở lại không phải nhập tên.</div>{% endif %}
   <form method="POST" action="/join" class="panel">
     <div class="avs" role="radiogroup" aria-label="Chọn icon">
       {% for e in avatars %}<label title="{{ e }}"><input type="radio" name="avatar" value="{{ e }}" {{ 'disabled' if e in taken }}><span>{{ e }}</span></label>{% endfor %}
@@ -656,8 +710,11 @@ PLAYER_BODY = """
 """
 
 
+IN_APP_UA = ("Zalo", "FBAN", "FBAV", "FB_IAB", "Messenger", "Instagram", "Line/")
+
+
 @app.route('/')
-def index():
+def index(join_msg=None, keep_avatar=None):
     username = session.get('username')
     # phòng đã reset → tên cũ không còn trong danh sách → về màn hình nhập tên
     if username and username not in game_data["players"]:
@@ -674,6 +731,8 @@ def index():
     body = render_template_string(
         PLAYER_BODY, phase=phase, me=username, info=info, players=players,
         avatars=AVATARS, taken={i.get("avatar") for i in players.values()},
+        join_msg=join_msg, keep_avatar=keep_avatar,
+        in_app=any(k in request.headers.get("User-Agent", "") for k in IN_APP_UA),
         mission_on=bool(game_data.get("mission")),
         game_id=game_data["game_id"],
         role=ROLES.get(info["role"]) if info and info["role"] else None,
@@ -701,8 +760,19 @@ def state():
 def join():
     username = (request.form.get('username') or '').strip()[:30]
     if username:
-        session['username'] = username
+        bid = browser_id()
         with _lock:
+            owners = game_data.setdefault("owners", {})
+            owner = owners.get(username)
+            if name_known(username) and owner and owner != bid:
+                # tên đã thuộc về một trình duyệt khác
+                if time.time() - LAST_SEEN.get(username, 0) < ACTIVE_SECS:
+                    return index(join_msg=("busy", username))          # người kia đang online: chặn trùng tên
+                if not request.form.get("confirm"):
+                    return index(join_msg=("confirm", username), keep_avatar=request.form.get("avatar"))
+            owners[username] = bid
+            LAST_SEEN[username] = time.time()
+            session['username'] = username
             players = game_data["players"]
             pick = request.form.get('avatar')
             taken = {i.get("avatar") for n, i in players.items() if n != username}
@@ -723,7 +793,9 @@ def join():
 
 @app.route('/logout')
 def logout():
-    session.pop('username', None)
+    u = session.pop('username', None)
+    if u:
+        LAST_SEEN.pop(u, None)     # đã thoát: không còn tính là đang online
     return redirect(url_for('index'))
 
 
@@ -927,6 +999,7 @@ def admin_kick():
     with _lock:
         if game_data["phase"] == "LOBBY" and name in game_data["players"]:
             game_data["players"].pop(name)     # điểm Điệp vụ vẫn giữ theo tên
+            LAST_SEEN.pop(name, None)
             bump()
     return redirect(url_for('admin_panel'))
 
@@ -2664,6 +2737,13 @@ def admin_lobby():
 
 # nạp trạng thái đã lưu (nếu có DATABASE_URL)
 db_load()
+
+# Không đặt SECRET_KEY trên Render: dùng khoá lưu trong database, để khởi động lại không đăng xuất cả đoàn
+if not os.environ.get("SECRET_KEY") and DATABASE_URL:
+    if not game_data.get("_secret"):
+        game_data["_secret"] = secrets.token_hex(32)
+        db_save()
+    app.secret_key = game_data["_secret"]
 
 
 if __name__ == '__main__':
