@@ -1,0 +1,2 @@
+# Chỉ cho kịch bản trình duyệt tests/e2e_mobile.py. Cần Python 64-bit trên Windows.
+playwright

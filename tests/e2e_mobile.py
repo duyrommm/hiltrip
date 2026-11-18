@@ -1,5 +1,5 @@
 """Kiểm tra trên trình duyệt thật, giả lập iPhone. Chạy:  python tests/e2e_mobile.py
-Cần: pip install playwright && python -m playwright install chromium"""
+Cần: pip install -r requirements-e2e.txt && python -m playwright install chromium (Python 64-bit)"""
 import os
 import subprocess
 import sys
