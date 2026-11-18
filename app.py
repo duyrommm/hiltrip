@@ -40,7 +40,7 @@ ROLES = {
 
 
 SPY_START_FORM = """
-<form action="/admin/spy/start" method="POST" class="stack">
+<form action="/admin/spy/start" method="POST" class="stack"><input type="hidden" name="gid" value="{{ gid() }}">
   <details class="note"><summary>Quản trò tự nhập từ (nếu muốn)</summary>
     <div style="margin-top:12px">
       <input type="text" name="civ" maxlength="40" placeholder="Từ của Dân, ví dụ: Cà phê" autocomplete="off">
@@ -112,6 +112,18 @@ def av(name):
 
 
 app.jinja_env.globals["av"] = av
+app.jinja_env.globals["gid"] = lambda: game_data["game_id"]
+
+
+def fresh_gid():
+    """Chống bấm lặp: form bắt đầu ván mang số ván lúc hiện nút. Bấm lần 2 (số đã cũ) thì bỏ qua."""
+    v = request.form.get("gid")
+    if v is None:
+        return True
+    try:
+        return int(v) == game_data["game_id"]
+    except ValueError:
+        return False
 
 
 def can_vote(i):
@@ -380,6 +392,16 @@ details summary{cursor:pointer;font-weight:500}
         return false;
       };
     });
+    // Khoá nút sau khi gửi để không bấm lặp khi mạng chậm
+    app.querySelectorAll('form:not([data-ajax])').forEach(function(f){
+      if (f.dataset.lockWired) return; f.dataset.lockWired = '1';
+      f.addEventListener('submit', function(e){
+        if (e.defaultPrevented) return;
+        setTimeout(function(){
+          f.querySelectorAll('button[type=submit]').forEach(function(b){ b.disabled = true; b.innerHTML = 'Đang xử lý…'; });
+        }, 0);
+      });
+    });
     var cls = app.querySelector('[data-body]');
     if (cls) document.body.className = cls.dataset.body;
     document.body.classList.toggle('revealed', opened && !!c);
@@ -423,6 +445,8 @@ details summary{cursor:pointer;font-weight:500}
   }
 
   wire();
+  // quay lại trang bằng nút Back trên iPhone: tải lại để nút không bị khoá
+  window.addEventListener('pageshow', function(e){ if (e.persisted) location.reload(); });
   setInterval(function(){ if (!document.hidden) poll(); }, 2000);
   document.addEventListener('visibilitychange', function(){ if (!document.hidden) poll(); });
 })();
@@ -847,9 +871,9 @@ ADMIN_BODY = """
 
 <div class="panel stack">
   {% if phase in ('LOBBY', 'END') %}
-  <form action="/admin/assign" method="POST"><button type="submit" {{ 'disabled' if total < 3 }}>🐺 Chơi Ma Sói: chia vai, bắt đầu đêm</button></form>
+  <form action="/admin/assign" method="POST"><input type="hidden" name="gid" value="{{ gid() }}"><button type="submit" {{ 'disabled' if total < 3 }}>🐺 Chơi Ma Sói: chia vai, bắt đầu đêm</button></form>
   """ + SPY_START_FORM.replace("Bắt đầu Truy Tìm Gián Điệp", "🕵️ Chơi Truy Tìm Gián Điệp") + """
-  <form action="/admin/tod/start" method="POST"><button type="submit" class="btn-dare" {{ 'disabled' if total < 2 }}>🎡 Chơi Thật hay Thách</button></form>
+  <form action="/admin/tod/start" method="POST"><input type="hidden" name="gid" value="{{ gid() }}"><button type="submit" class="btn-dare" {{ 'disabled' if total < 2 }}>🎡 Chơi Thật hay Thách</button></form>
   {% if total < 3 %}<p class="count" style="margin:0">Cần ít nhất 3 người.</p>{% endif %}
   {% elif phase == 'NIGHT' %}
   <form action="/admin/next_phase/DAY" method="POST"><button type="submit">Gọi trời sáng</button></form>
@@ -910,6 +934,8 @@ def admin_kick():
 @app.route('/admin/assign', methods=['POST'])
 def admin_assign():
     with _lock:
+        if not fresh_gid():
+            return redirect(url_for('admin_panel'))
         usernames = list(game_data["players"].keys())
         total = len(usernames)
         if total < 3:
@@ -1334,8 +1360,8 @@ SPY_ADMIN = """
   <form action="/admin/spy/skip_guess" method="POST" data-confirm="Coi như Mũ Trắng đoán sai?"><button type="submit" class="btn-ghost">Mũ Trắng không đoán, đi tiếp</button></form>
   {% else %}
   """ + SPY_START_FORM.replace("Bắt đầu Truy Tìm Gián Điệp", "Ván Gián Điệp mới") + """
-  <form action="/admin/assign" method="POST"><button type="submit">Chuyển sang Ma Sói</button></form>
-  <form action="/admin/tod/start" method="POST"><button type="submit" class="btn-dare">🎡 Chơi Thật hay Thách</button></form>
+  <form action="/admin/assign" method="POST"><input type="hidden" name="gid" value="{{ gid() }}"><button type="submit">Chuyển sang Ma Sói</button></form>
+  <form action="/admin/tod/start" method="POST"><input type="hidden" name="gid" value="{{ gid() }}"><button type="submit" class="btn-dare">🎡 Chơi Thật hay Thách</button></form>
   {% endif %}
   {% if sp.phase != 'END' %}
   <form action="/admin/spy/end" method="POST" data-confirm="Kết thúc ván và lật bài cho mọi người?"><button type="submit" class="btn-ghost">Kết thúc ván, lật bài</button></form>
@@ -1371,6 +1397,8 @@ def spy_admin():
 @app.route('/admin/spy/start', methods=['POST'])
 def spy_start():
     with _lock:
+        if not fresh_gid():
+            return redirect(url_for('admin_panel'))
         names = list(game_data["players"].keys())
         n = len(names)
         if n < 3:
@@ -1893,7 +1921,7 @@ MISSION_ADMIN = """
   <div class="panel stack">
     {% if m.phase == 'PLAY' %}
       {% if m.stage + 1 < stages|length %}{% set nx = stages[m.stage + 1] %}
-      <form action="/admin/mission/next" method="POST" data-confirm="Mở chặng {{ nx.name }}? Mọi người nhận nhiệm vụ mới, nhiệm vụ cũ chưa làm vẫn giữ.">
+      <form action="/admin/mission/next" method="POST" data-confirm="Mở chặng {{ nx.name }}? Mọi người nhận nhiệm vụ mới, nhiệm vụ cũ chưa làm vẫn giữ."><input type="hidden" name="stage" value="{{ m.stage }}">
         <button type="submit">Mở chặng tiếp: {{ nx.icon }} {{ nx.name }}</button></form>
       {% endif %}
       <form action="/admin/mission/vote" method="POST" data-confirm="Dừng nhận nhiệm vụ và mở biểu quyết truy tìm gián điệp?">
@@ -2122,7 +2150,9 @@ def mission_demo_act():
 def mission_next():
     with _lock:
         m = m_get()
-        if m and m["phase"] == "PLAY" and m["stage"] + 1 < len(MISSION_STAGES):
+        sent = request.form.get("stage")
+        same = sent is None or sent == str(m["stage"] if m else "")
+        if m and same and m["phase"] == "PLAY" and m["stage"] + 1 < len(MISSION_STAGES):
             m_open_stage(m, m["stage"] + 1)
             for n in m["agents"]:
                 m_notify(m, n, f"📍 Đã mở chặng {MISSION_STAGES[m['stage']]['name']}, bạn có nhiệm vụ mới.")
@@ -2476,7 +2506,7 @@ TOD_BODY = """
 {% if admin %}
 <div class="panel stack" style="margin-top:14px">
   {% if t.phase == 'END' %}
-  <form action="/admin/tod/start" method="POST"><button type="submit" class="btn-seer">🎡 Chơi lại Thật hay Thách</button></form>
+  <form action="/admin/tod/start" method="POST"><input type="hidden" name="gid" value="{{ gid() }}"><button type="submit" class="btn-seer">🎡 Chơi lại Thật hay Thách</button></form>
   {% else %}
   <form action="/admin/tod/end" method="POST" data-confirm="Kết thúc và xem bảng vàng?"><button type="submit" class="btn-ghost">🏆 Kết thúc, xem bảng vàng</button></form>
   {% endif %}
@@ -2517,6 +2547,8 @@ def tod_can_act(t):
 @app.route('/admin/tod/start', methods=['POST'])
 def tod_start():
     with _lock:
+        if not fresh_gid():
+            return redirect(url_for('admin_panel'))
         if game_data["players"]:
             game_data["tod"] = tod_new()
             game_data["phase"] = "TOD"
