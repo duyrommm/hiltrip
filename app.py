@@ -292,6 +292,39 @@ body.day{ --ink:#f1e9d6; --ink-2:#fffaf0; --line:#ddd0b2; --moon:#2b2a33; --mist
 .tod-card p{margin:0;font:600 22px/1.35 "Lora",Georgia,serif}
 .after-spin.hide{visibility:hidden}
 button.armed{outline:3px solid var(--wolf);outline-offset:2px}
+.ptabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.ptabs::-webkit-scrollbar{display:none}
+.ptabs button{flex:0 0 auto;width:auto;padding:9px 13px;font-size:14px;font-weight:500;background:var(--ink-2);color:var(--mist);border:1px solid var(--line);border-radius:999px}
+.ptabs button.on{background:var(--villa);color:#1d1a10;border-color:var(--villa);font-weight:700}
+.plist summary{list-style:none} .plist summary::-webkit-details-marker{display:none}
+.plist[open] summary{margin-bottom:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chip{width:auto;padding:6px 10px;font-size:14px;font-weight:500;background:var(--ink);color:var(--moon);border:1px solid var(--line);border-radius:999px}
+.addrow{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.addrow input{margin:0;flex:1}
+.addrow .mini{padding:10px 14px}
+.wbox{position:relative;width:100%;max-width:340px;margin:6px auto 14px}
+.wbox canvas{position:relative;z-index:1;cursor:pointer;display:block;margin:0 auto;border-radius:50%;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+.wpointer{position:absolute;left:50%;top:-10px;transform:translateX(-50%);width:0;height:0;border-left:13px solid transparent;border-right:13px solid transparent;border-top:24px solid #6366f1;z-index:2;filter:drop-shadow(0 2px 2px rgba(0,0,0,.4))}
+.wspin{position:absolute;z-index:3;left:50%;top:50%;transform:translate(-50%,-50%);width:78px;height:78px;border-radius:50%;padding:0;background:#6366f1;color:#fff;font-size:17px;border:4px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+.wspin:disabled{opacity:.85}
+.wspin:active{transform:translate(-50%,-50%) scale(.95)}
+.result{text-align:center;margin:4px 0 12px}
+.result .big,.big{font:700 28px/1.25 "Lora",Georgia,serif}
+.grid3{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.team{border-width:2px}
+.bignum{font-size:28px;min-width:40px;text-align:center}
+.draws{list-style:none;padding:0;margin:14px 0 0}
+.draws li{display:flex;align-items:center;gap:12px;background:var(--ink-2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px;font-weight:600;animation:pop .35s ease both}
+.medal{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;font-weight:700;color:#1d1a10;background:#e98a3a}
+.medal.m1{background:#f2c12e}.medal.m2{background:#b9c2cf}.medal.m3{background:#cd8a52}
+@keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.dice{font-size:84px;line-height:1.1;letter-spacing:6px}
+.coin{font-size:96px;line-height:1.1}
+.coin.flip{animation:flip .7s ease}
+@keyframes flip{0%{transform:rotateY(0)}100%{transform:rotateY(1080deg)}}
+button.sel{border-color:var(--villa);color:var(--moon)}
+@media (prefers-reduced-motion:reduce){.coin.flip,.draws li{animation:none}}
 .mini{display:inline-block;width:auto;padding:4px 12px;font-size:13px;font-weight:500}
 .brand a{color:var(--mist);font:500 14px "Be Vietnam Pro",system-ui,sans-serif;text-decoration:none;border:1px solid var(--line);padding:6px 12px;border-radius:999px}
 h1{font:700 30px/1.15 "Lora",Georgia,serif;margin:0 0 6px}
@@ -450,6 +483,7 @@ details summary{cursor:pointer;font-weight:500}
   }
 
   function refresh(){
+    if (app.querySelector('[data-static]')) return;
     if (app.querySelector('form[action="/join"]')) return;
     if (app.querySelector('form[data-armed="1"]')) { setTimeout(refresh, 1500); return; }
     var a = document.activeElement;
@@ -486,6 +520,7 @@ details summary{cursor:pointer;font-weight:500}
     }).catch(function(){ live.classList.add('off'); });
   }
 
+  if (app.querySelector('[data-static]')) live.style.display = 'none';
   wire();
   // quay lại trang bằng nút Back trên iPhone: tải lại để nút không bị khoá
   window.addEventListener('pageshow', function(e){ if (e.persisted) location.reload(); });
@@ -508,7 +543,7 @@ def page(title, body, body_cls, partial_url):
 PLAYER_BODY = """
 <div data-phase="{{ phase }}" data-game="{{ game_id }}" data-body="{{ body_cls }}">
 <div class="brand"><span>{{ 'HILtrip' if (not me or phase == 'LOBBY') else 'HILtrip Ma Sói' }}</span>
-  <span>{% if mission_on %}<a href="/mission">🎯 Điệp vụ</a> {% endif %}{% if me %}<a href="/logout">Thoát</a>{% endif %}</span></div>
+  <span>{% if phase == 'LOBBY' or not me %}<a href="/picker">🎲 Random</a> {% endif %}{% if mission_on %}<a href="/mission">🎯 Điệp vụ</a> {% endif %}{% if me %}<a href="/logout">Thoát</a>{% endif %}</span></div>
 
 {% if not me and join_msg and join_msg[0] == 'confirm' %}
   <h1>Bạn vào lại?</h1>
@@ -889,7 +924,7 @@ PHASE_VI = {"LOBBY": "Phòng chờ", "NIGHT": "🌙 Đêm", "DAY": "☀️ Ngày
 
 ADMIN_BODY = """
 <div data-phase="{{ phase }}" data-game="{{ game_id }}" data-body="{{ body_cls }}">
-<div class="brand"><span>HILtrip Quản trò</span><span><a href="/admin/mission">🎯 Điệp vụ</a> <a href="/">Người chơi</a></span></div>
+<div class="brand"><span>HILtrip Quản trò</span><span><a href="/picker?from=admin">🎲</a> <a href="/admin/mission">🎯 Điệp vụ</a> <a href="/">Người chơi</a></span></div>
 <h1>{{ phase_vi[phase] }}</h1>
 <p class="sub">{{ total }} người trong phòng{% if phase != 'LOBBY' %} · còn sống {{ alive }}{% endif %}</p>
 
@@ -1386,7 +1421,7 @@ SPY_BODY = """
 
 SPY_ADMIN = """
 <div data-phase="SPY-{{ sp.phase }}" data-game="{{ game_id }}" data-body="">
-<div class="brand"><span>HILtrip Quản trò</span><span><a href="/admin/mission">🎯 Điệp vụ</a> <a href="/">Người chơi</a></span></div>
+<div class="brand"><span>HILtrip Quản trò</span><span><a href="/picker?from=admin">🎲</a> <a href="/admin/mission">🎯 Điệp vụ</a> <a href="/">Người chơi</a></span></div>
 <h1>🕵️ Gián Điệp{% if sp.phase != 'END' %}, vòng {{ sp.round }}{% endif %}</h1>
 <p class="sub">{{ alive }} người còn trong cuộc · {{ nspy }} gián điệp{% if nwhite %}, {{ nwhite }} Mũ Trắng{% endif %} lúc chia</p>
 
@@ -2733,6 +2768,317 @@ def admin_lobby():
             i.update(role="Villager", alive=True, target=None, acted=False, vote=None)
         bump()
     return redirect(url_for('admin_panel'))
+
+
+# ================================================================ RANDOM PICKER (chạy trên máy người bấm)
+PICKER_BODY = r"""
+<div data-static="1" data-body="">
+<div class="brand"><span>HILtrip Random</span><span><a href="{{ back }}">← Quay lại</a></span></div>
+
+<div class="ptabs" role="tablist">
+  <button type="button" data-tab="wheel" class="on">🎡 Vòng quay</button>
+  <button type="button" data-tab="team">👥 Chia team</button>
+  <button type="button" data-tab="draw">🎟️ Bốc thăm</button>
+  <button type="button" data-tab="dice">🎲 Xúc xắc</button>
+  <button type="button" data-tab="coin">🪙 Đồng xu</button>
+</div>
+
+<details class="panel plist" id="plist">
+  <summary><b>Danh sách</b> <span class="count" id="pcount"></span> <span class="count">· chạm để sửa</span></summary>
+  <div class="chips" id="chips"></div>
+  <div class="addrow">
+    <input type="text" id="padd" maxlength="40" placeholder="Thêm tên hoặc món, ví dụ: Lẩu" autocomplete="off">
+    <button type="button" id="paddbtn" class="mini">Thêm</button>
+  </div>
+  <div class="addrow">
+    <button type="button" id="pall" class="btn-ghost mini">Lấy cả phòng</button>
+    <button type="button" id="pclear" class="btn-ghost mini">Xoá hết</button>
+  </div>
+  <p class="count" style="margin:8px 0 0">Chạm vào tên để bỏ ra. Danh sách dùng chung cho cả 5 công cụ, chỉ lưu trên máy bạn.</p>
+</details>
+
+<section data-pane="wheel">
+  <div class="wbox">
+    <div class="wpointer"></div>
+    <canvas id="wheel" width="320" height="320" aria-label="Vòng quay"></canvas>
+    <button type="button" id="spin" class="wspin">Quay!</button>
+  </div>
+  <div id="wres" class="result" hidden></div>
+  <label class="check" style="justify-content:center"><input type="checkbox" id="wremove"> Trúng rồi thì bỏ khỏi vòng quay</label>
+</section>
+
+<section data-pane="team" hidden>
+  <div class="panel stack">
+    <h2>Chọn nhanh</h2>
+    <div class="grid3">
+      <button type="button" class="btn-ghost" data-size="2">2 vs 2</button>
+      <button type="button" class="btn-ghost" data-size="3">3 vs 3</button>
+      <button type="button" class="btn-ghost" data-size="4">4 vs 4</button>
+      <button type="button" class="btn-ghost" data-size="5">5 vs 5</button>
+      <button type="button" class="btn-ghost" data-teams="2">Chia 2 đội</button>
+      <button type="button" class="btn-ghost" data-teams="3">Chia 3 đội</button>
+      <button type="button" class="btn-ghost" data-teams="4">Chia 4 đội</button>
+    </div>
+    <p class="count" style="margin:0">“2 vs 2”: mỗi đội đúng 2 người, ai dư thì vào nhóm chờ. “Chia 2 đội”: chia hết mọi người, các đội hơn kém nhau tối đa 1 người.</p>
+  </div>
+  <div id="teams"></div>
+</section>
+
+<section data-pane="draw" hidden>
+  <div class="panel stack">
+    <h2>Bốc mấy người?</h2>
+    <div class="addrow"><button type="button" class="btn-ghost mini" id="dminus">−</button><b id="dn" class="bignum">1</b><button type="button" class="btn-ghost mini" id="dplus">+</button></div>
+    <button type="button" id="drawbtn">🎟️ Bốc thăm</button>
+  </div>
+  <ol id="draws" class="draws"></ol>
+</section>
+
+<section data-pane="dice" hidden>
+  <div class="panel stack center">
+    <div class="addrow" style="justify-content:center"><button type="button" class="btn-ghost mini" data-dice="1">1 viên</button><button type="button" class="btn-ghost mini" data-dice="2">2 viên</button><button type="button" class="btn-ghost mini" data-dice="3">3 viên</button></div>
+    <div id="dice" class="dice">⚀</div>
+    <p id="dsum" class="sub center" style="margin:0"></p>
+    <button type="button" id="rollbtn">🎲 Tung xúc xắc</button>
+  </div>
+</section>
+
+<section data-pane="coin" hidden>
+  <div class="panel stack center">
+    <div id="coin" class="coin">🪙</div>
+    <p id="coinres" class="sub center" style="margin:0"></p>
+    <button type="button" id="flipbtn">🪙 Tung đồng xu</button>
+    <p id="coinhist" class="count center" style="margin:0"></p>
+  </div>
+</section>
+
+<script>
+(function(){
+  var ROOM = {{ room|tojson }};          // [{name, icon}]
+  var KEY = 'hiltrip_picker_v1';
+  var COLORS = ['#a78bfa','#f2b04e','#5fae5f','#5aa9e6','#ec6b6b','#6cc9c0'];
+  function store(get, val){ try { if (get) return JSON.parse(localStorage.getItem(KEY) || 'null'); localStorage.setItem(KEY, JSON.stringify(val)); } catch(e){ return null; } }
+  function rnd(n){ var a = new Uint32Array(1); (window.crypto || window.msCrypto).getRandomValues(a); return a[0] % n; }
+  function shuffle(arr){ var a = arr.slice(); for (var i = a.length - 1; i > 0; i--){ var j = rnd(i + 1); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function iconOf(n){ for (var i = 0; i < ROOM.length; i++) if (ROOM[i].name === n) return ROOM[i].icon; return ''; }
+  function label(n){ var ic = iconOf(n); return (ic ? ic + ' ' : '') + n; }
+
+  var saved = store(true);
+  var items = (saved && saved.items && saved.items.length) ? saved.items : ROOM.map(function(p){ return p.name; });
+  function save(){ store(false, {items: items}); }
+
+  // ---------- danh sách
+  var chips = document.getElementById('chips'), pcount = document.getElementById('pcount');
+  function renderList(){
+    chips.innerHTML = items.map(function(n, i){ return '<button type="button" class="chip" data-i="' + i + '">' + esc(label(n)) + ' ✕</button>'; }).join('');
+    pcount.textContent = '· ' + items.length + ' mục';
+    drawWheel(); clampDraw();
+  }
+  chips.onclick = function(e){ var b = e.target.closest('.chip'); if (!b) return; items.splice(+b.dataset.i, 1); save(); renderList(); };
+  function addItem(){ var inp = document.getElementById('padd'); var v = inp.value.trim().slice(0, 40); if (v && items.indexOf(v) < 0){ items.push(v); save(); renderList(); } inp.value = ''; }
+  document.getElementById('paddbtn').onclick = addItem;
+  document.getElementById('padd').onkeydown = function(e){ if (e.key === 'Enter'){ e.preventDefault(); addItem(); } };
+  document.getElementById('pall').onclick = function(){ ROOM.forEach(function(p){ if (items.indexOf(p.name) < 0) items.push(p.name); }); save(); renderList(); };
+  document.getElementById('pclear').onclick = function(){ items = []; save(); renderList(); };
+  function needItems(min){ if (items.length >= min) return true; document.getElementById('plist').open = true; alertBox('Cần ít nhất ' + min + ' mục trong danh sách.'); return false; }
+  function alertBox(msg){ var r = document.querySelector('section:not([hidden]) .result, #teams, #draws'); var el = document.getElementById('pmsg'); if (!el){ el = document.createElement('div'); el.id = 'pmsg'; el.className = 'note bad'; el.style.margin = '10px 0'; document.getElementById('plist').after(el); } el.textContent = msg; setTimeout(function(){ el.remove(); }, 2500); }
+
+  // ---------- tab
+  document.querySelectorAll('.ptabs button').forEach(function(b){
+    b.onclick = function(){
+      document.querySelectorAll('.ptabs button').forEach(function(x){ x.classList.toggle('on', x === b); });
+      document.querySelectorAll('section[data-pane]').forEach(function(s){ s.hidden = s.dataset.pane !== b.dataset.tab; });
+      if (b.dataset.tab === 'wheel') drawWheel();
+    };
+  });
+
+  // ---------- vòng quay
+  var cv = document.getElementById('wheel'), ctx = cv.getContext('2d'), rot = 0, spinning = false;
+  function sizeCanvas(){
+    var w = Math.min(340, document.querySelector('.wbox').clientWidth || 320), dpr = window.devicePixelRatio || 1;
+    cv.style.width = w + 'px'; cv.style.height = w + 'px'; cv.width = w * dpr; cv.height = w * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return w;
+  }
+  function drawWheel(){
+    var w = sizeCanvas(), r = w / 2, n = items.length;
+    ctx.clearRect(0, 0, w, w);
+    if (!n){ ctx.fillStyle = '#343c63'; ctx.beginPath(); ctx.arc(r, r, r - 4, 0, 2 * Math.PI); ctx.fill(); return; }
+    var seg = 2 * Math.PI / n;
+    for (var i = 0; i < n; i++){
+      var a0 = -Math.PI / 2 + rot + i * seg;
+      ctx.beginPath(); ctx.moveTo(r, r); ctx.arc(r, r, r - 4, a0, a0 + seg); ctx.closePath();
+      var col = COLORS[i % COLORS.length]; if (n % COLORS.length === 1 && i === n - 1) col = COLORS[2];
+      ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2; ctx.stroke();
+      var mid = a0 + seg / 2, left = Math.cos(mid) < 0;      // nửa trái: lật chữ cho đọc xuôi
+      ctx.save(); ctx.translate(r, r); ctx.rotate(left ? mid + Math.PI : mid);
+      var fs = Math.max(11, Math.min(17, 220 / Math.max(n, 6)));
+      ctx.font = '700 ' + fs + 'px "Be Vietnam Pro", system-ui, sans-serif';
+      ctx.textAlign = left ? 'left' : 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff';
+      ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 3;
+      var t = label(items[i]); var maxw = r - 46;
+      while (ctx.measureText(t).width > maxw && t.length > 3) t = t.slice(0, -2) + '…';
+      ctx.fillText(t, left ? -(r - 14) : r - 14, 0); ctx.restore();
+    }
+    ctx.beginPath(); ctx.arc(r, r, r - 2, 0, 2 * Math.PI); ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.stroke();
+  }
+  function indexAtPointer(){
+    var n = items.length, seg = 2 * Math.PI / n;
+    var a = ((-rot) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+    return Math.min(n - 1, Math.floor(a / seg));
+  }
+  window.__wheelAt = function(){ return items[indexAtPointer()]; };
+  var wres = document.getElementById('wres');
+  document.getElementById('spin').onclick = function(){
+    if (spinning || !needItems(2)) return;
+    spinning = true; wres.hidden = true; this.disabled = true;
+    var n = items.length, seg = 2 * Math.PI / n, win = rnd(n);
+    var jitter = (rnd(1000) / 1000 - 0.5) * seg * 0.7;
+    var want = -((win + 0.5) * seg + jitter);
+    var delta = ((want - rot) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) + 2 * Math.PI * 6;
+    var from = rot, dur = 4200, t0 = null;
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var btn = this;
+    function done(){
+      rot = from + delta; drawWheel(); spinning = false; btn.disabled = false;
+      var name = items[indexAtPointer()];
+      wres.innerHTML = '<div class="big">🎉 ' + esc(label(name)) + '</div>';
+      wres.hidden = false; wres.dataset.name = name;
+      if (document.getElementById('wremove').checked){ items.splice(items.indexOf(name), 1); save(); setTimeout(renderList, 900); }
+    }
+    if (reduce){ done(); return; }
+    function step(ts){
+      if (t0 === null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / dur), e = 1 - Math.pow(1 - p, 4);
+      rot = from + delta * e; drawWheel();
+      if (p < 1) requestAnimationFrame(step); else done();
+    }
+    requestAnimationFrame(step);
+  };
+  cv.onclick = function(){ document.getElementById('spin').click(); };   // chạm vào vòng quay cũng quay
+  window.addEventListener('resize', drawWheel);
+
+  // ---------- chia team
+  var TEAMS = [['🔴','Đỏ','#ec6b6b'],['🔵','Xanh','#5aa9e6'],['🟢','Lá','#5fae5f'],['🟡','Vàng','#f2b04e'],['🟣','Tím','#a78bfa'],['🟠','Cam','#f08a4b'],['⚪','Trắng','#c9ccd8'],['🟤','Nâu','#a47551']];
+  window.__splitTeams = function(list, size, count){
+    var s = shuffle(list), teams = [], bench = [];
+    if (size){
+      var k = Math.floor(s.length / size);
+      for (var i = 0; i < k; i++) teams.push(s.slice(i * size, (i + 1) * size));
+      bench = s.slice(k * size);
+    } else {
+      for (var j = 0; j < count; j++) teams.push([]);
+      s.forEach(function(x, i){ teams[i % count].push(x); });
+    }
+    return {teams: teams, bench: bench};
+  };
+  document.querySelectorAll('[data-size],[data-teams]').forEach(function(b){
+    b.onclick = function(){
+      var size = +b.dataset.size || 0, count = +b.dataset.teams || 0;
+      if (!needItems(size ? size * 2 : count * 1 + 1)) return;
+      var r = window.__splitTeams(items, size, count);
+      var html = r.teams.map(function(t, i){
+        var c = TEAMS[i % TEAMS.length];
+        return '<div class="panel team" style="border-color:' + c[2] + '"><h2 style="color:' + c[2] + '">' + c[0] + ' Đội ' + c[1] + ' <span class="count">· ' + t.length + ' người</span></h2>' +
+               '<ul class="roster">' + t.map(function(x){ return '<li><span>' + esc(label(x)) + '</span></li>'; }).join('') + '</ul></div>';
+      }).join('');
+      if (r.bench.length) html += '<div class="panel"><h2>⏳ Chờ lượt sau <span class="count">· ' + r.bench.length + ' người</span></h2><ul class="roster">' + r.bench.map(function(x){ return '<li><span>' + esc(label(x)) + '</span></li>'; }).join('') + '</ul></div>';
+      html += '<button type="button" class="btn-ghost" id="again">🔁 Chia lại</button>';
+      var box = document.getElementById('teams'); box.innerHTML = html;
+      box.dataset.teams = JSON.stringify(r);
+      document.getElementById('again').onclick = function(){ b.click(); };
+      box.scrollIntoView({behavior: 'smooth', block: 'start'});
+    };
+  });
+
+  // ---------- bốc thăm
+  var dn = 1;
+  function clampDraw(){ dn = Math.max(1, Math.min(dn, Math.max(items.length, 1))); document.getElementById('dn').textContent = dn; }
+  document.getElementById('dminus').onclick = function(){ dn--; clampDraw(); };
+  document.getElementById('dplus').onclick = function(){ dn++; clampDraw(); };
+  document.getElementById('drawbtn').onclick = function(){
+    if (!needItems(1)) return;
+    var pick = shuffle(items).slice(0, dn), box = document.getElementById('draws');
+    box.innerHTML = pick.map(function(x, i){ return '<li style="animation-delay:' + (i * 0.25) + 's"><span class="medal m' + Math.min(i + 1, 4) + '">' + (i + 1) + '</span>' + esc(label(x)) + '</li>'; }).join('');
+    box.dataset.pick = JSON.stringify(pick);
+  };
+
+  // ---------- xúc xắc
+  var FACES = ['⚀','⚁','⚂','⚃','⚄','⚅'], ndice = 1;
+  document.querySelectorAll('[data-dice]').forEach(function(b){ b.onclick = function(){ ndice = +b.dataset.dice; document.querySelectorAll('[data-dice]').forEach(function(x){ x.classList.toggle('sel', x === b); }); document.getElementById('dice').textContent = Array(ndice + 1).join('⚀'); document.getElementById('dsum').textContent = ''; }; });
+  document.querySelector('[data-dice="1"]').classList.add('sel');
+  document.getElementById('rollbtn').onclick = function(){
+    var el = document.getElementById('dice'), sum = document.getElementById('dsum'), k = 0, btn = this; btn.disabled = true;
+    var vals = [];
+    var iv = setInterval(function(){
+      vals = []; for (var i = 0; i < ndice; i++) vals.push(rnd(6) + 1);
+      el.textContent = vals.map(function(v){ return FACES[v - 1]; }).join('');
+      if (++k >= 10){ clearInterval(iv); btn.disabled = false; el.dataset.vals = JSON.stringify(vals);
+        sum.textContent = ndice > 1 ? 'Tổng: ' + vals.reduce(function(a, b){ return a + b; }, 0) : 'Được ' + vals[0] + ' điểm'; }
+    }, 60);
+  };
+
+  // ---------- đồng xu
+  var hist = {h: 0, t: 0};
+  document.getElementById('flipbtn').onclick = function(){
+    var c = document.getElementById('coin'), res = document.getElementById('coinres'), btn = this; btn.disabled = true;
+    c.classList.remove('flip'); void c.offsetWidth; c.classList.add('flip'); res.textContent = '';
+    setTimeout(function(){
+      var heads = rnd(2) === 0; heads ? hist.h++ : hist.t++;
+      res.innerHTML = '<span class="big">' + (heads ? 'Ngửa' : 'Sấp') + '</span>'; res.dataset.v = heads ? 'H' : 'T';
+      document.getElementById('coinhist').textContent = 'Đã tung: ' + hist.h + ' ngửa · ' + hist.t + ' sấp';
+      btn.disabled = false;
+    }, 700);
+  };
+
+  renderList();
+})();
+</script>
+</div>
+"""
+
+PICKER_CSS = """
+.ptabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.ptabs::-webkit-scrollbar{display:none}
+.ptabs button{flex:0 0 auto;width:auto;padding:9px 13px;font-size:14px;font-weight:500;background:var(--ink-2);color:var(--mist);border:1px solid var(--line);border-radius:999px}
+.ptabs button.on{background:var(--villa);color:#1d1a10;border-color:var(--villa);font-weight:700}
+.plist summary{list-style:none} .plist summary::-webkit-details-marker{display:none}
+.plist[open] summary{margin-bottom:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chip{width:auto;padding:6px 10px;font-size:14px;font-weight:500;background:var(--ink);color:var(--moon);border:1px solid var(--line);border-radius:999px}
+.addrow{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.addrow input{margin:0;flex:1}
+.addrow .mini{padding:10px 14px}
+.wbox{position:relative;width:100%;max-width:340px;margin:6px auto 14px}
+.wbox canvas{position:relative;z-index:1;cursor:pointer;display:block;margin:0 auto;border-radius:50%;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+.wpointer{position:absolute;left:50%;top:-10px;transform:translateX(-50%);width:0;height:0;border-left:13px solid transparent;border-right:13px solid transparent;border-top:24px solid #6366f1;z-index:2;filter:drop-shadow(0 2px 2px rgba(0,0,0,.4))}
+.wspin{position:absolute;z-index:3;left:50%;top:50%;transform:translate(-50%,-50%);width:78px;height:78px;border-radius:50%;padding:0;background:#6366f1;color:#fff;font-size:17px;border:4px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+.wspin:disabled{opacity:.85}
+.wspin:active{transform:translate(-50%,-50%) scale(.95)}
+.result{text-align:center;margin:4px 0 12px}
+.result .big,.big{font:700 28px/1.25 "Lora",Georgia,serif}
+.grid3{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.team{border-width:2px}
+.bignum{font-size:28px;min-width:40px;text-align:center}
+.draws{list-style:none;padding:0;margin:14px 0 0}
+.draws li{display:flex;align-items:center;gap:12px;background:var(--ink-2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px;font-weight:600;animation:pop .35s ease both}
+.medal{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;font-weight:700;color:#1d1a10;background:#e98a3a}
+.medal.m1{background:#f2c12e}.medal.m2{background:#b9c2cf}.medal.m3{background:#cd8a52}
+@keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.dice{font-size:84px;line-height:1.1;letter-spacing:6px}
+.coin{font-size:96px;line-height:1.1}
+.coin.flip{animation:flip .7s ease}
+@keyframes flip{0%{transform:rotateY(0)}100%{transform:rotateY(1080deg)}}
+button.sel{border-color:var(--villa);color:var(--moon)}
+@media (prefers-reduced-motion:reduce){.coin.flip,.draws li{animation:none}}
+"""
+
+
+@app.route('/picker')
+def picker():
+    room = [{"name": n, "icon": av(n)} for n, i in game_data["players"].items()]
+    back = "/admin" if request.args.get("from") == "admin" else "/"
+    body = render_template_string(PICKER_BODY, room=room, back=back)
+    return page("HILtrip Random", body, "", "/picker?partial=1")
 
 
 # nạp trạng thái đã lưu (nếu có DATABASE_URL)

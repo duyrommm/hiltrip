@@ -25,6 +25,115 @@ def state(page):
     return page.evaluate("fetch('/state').then(r=>r.json()).then(j=>j.v)")
 
 
+def picker_checks(br, phone):
+    """Trang Random."""
+    import json
+    _, pg = phone()
+    pg.goto(B + "/picker")
+    items = pg.evaluate("document.querySelectorAll('.chip').length")
+
+    # P1. chạm thật vào nút Quay: vòng quay chạy, tên công bố đúng ô dưới mũi tên
+    pg.tap("#spin")
+    pg.wait_for_timeout(4800)
+    name = pg.locator("#wres").get_attribute("data-name")
+    check("Random: chạm Quay! thì quay, kết quả đúng ô dưới mũi tên", bool(name) and name == pg.evaluate("__wheelAt()"), name)
+
+    # P2. quay liên tiếp + bỏ người đã trúng (tắt hiệu ứng cho nhanh)
+    ctx = br.new_context(**IPHONE, reduced_motion="reduce")
+    q = ctx.new_page()
+    q.goto(B + "/picker")
+    q.evaluate("localStorage.setItem('hiltrip_picker_v1', JSON.stringify({items:['A','B','C','D','E','F','G']}))")
+    q.reload()
+    q.check("#wremove")
+    ok, seen = True, []
+    for i in range(6):
+        q.tap("#spin")
+        q.wait_for_timeout(1100)
+        n = q.locator("#wres").get_attribute("data-name")
+        left = q.evaluate("document.querySelectorAll('.chip').length")
+        ok = ok and n not in seen and left == 7 - (i + 1)
+        seen.append(n)
+    check("Random: quay 6 lần, bỏ người đã trúng, không ai trúng 2 lần", ok, seen)
+
+    # P3. thuật toán chia team, thử mọi số người 2..16
+    bad = q.evaluate("""() => { const errs = [];
+      for (let n = 2; n <= 16; n++) { const L = Array.from({length:n}, (_, i) => 'p' + i);
+        for (const size of [2,3,4,5]) { if (n < size * 2) continue; const r = __splitTeams(L, size, 0);
+          const all = r.teams.flat().concat(r.bench);
+          if (r.teams.length !== Math.floor(n/size) || r.teams.some(t => t.length !== size) || r.bench.length !== n % size
+              || all.length !== n || new Set(all).size !== n) errs.push('size ' + n + '/' + size); }
+        for (const c of [2,3,4]) { if (n < c) continue; const r = __splitTeams(L, 0, c); const all = r.teams.flat();
+          const sz = r.teams.map(t => t.length);
+          if (r.teams.length !== c || Math.max(...sz) - Math.min(...sz) > 1 || all.length !== n || new Set(all).size !== n || r.bench.length) errs.push('count ' + n + '/' + c); } }
+      return errs; }""")
+    check("Random: chia team đúng cho mọi số người 2–16 (2vs2..5vs5, 2–4 đội)", not bad, bad[:5])
+
+    # P4. bấm chia đội trên giao diện; thiếu người thì báo rõ
+    pg.click("button[data-tab=team]")
+    pg.click("button[data-size='5']")                      # cần 10 người, phòng thử ít hơn
+    warned = "Cần ít nhất 10 mục" in pg.content()
+    size = 3 if items >= 6 else 2
+    pg.click(f"button[data-size='{size}']")
+    r = json.loads(pg.locator("#teams").get_attribute("data-teams"))
+    shown = pg.locator("#teams .team").count()
+    check(f"Random: {size} vs {size} hiện đúng số đội; thiếu người thì báo", warned and shown == len(r["teams"]) == items // size
+          and all(len(t) == size for t in r["teams"]) and len(r["bench"]) == items % size)
+
+    # P5. bốc thăm không trùng, không vượt số người
+    pg.click("button[data-tab=draw]")
+    for _ in range(20):
+        pg.click("#dplus")
+    pg.click("#drawbtn")
+    pick = json.loads(pg.locator("#draws").get_attribute("data-pick"))
+    check("Random: bốc thăm không trùng, tối đa bằng số người", len(pick) == items and len(set(pick)) == items)
+
+    # P6. xúc xắc và đồng xu đúng miền giá trị
+    pg.click("button[data-tab=dice]")
+    pg.click("[data-dice='3']")
+    okd = True
+    for _ in range(3):
+        pg.click("#rollbtn")
+        pg.wait_for_timeout(800)
+        v = json.loads(pg.locator("#dice").get_attribute("data-vals"))
+        okd = okd and len(v) == 3 and all(1 <= x <= 6 for x in v) and str(sum(v)) in pg.locator("#dsum").inner_text()
+    pg.click("button[data-tab=coin]")
+    vals = set()
+    for _ in range(4):
+        pg.click("#flipbtn")
+        pg.wait_for_timeout(900)
+        vals.add(pg.locator("#coinres").get_attribute("data-v"))
+    import re
+    counts = [int(x) for x in re.findall(r"\d+", pg.locator("#coinhist").inner_text())]
+    check("Random: xúc xắc 1–6, tổng đúng; đồng xu chỉ Ngửa/Sấp, đếm đủ 4 lần", okd and vals <= {"H", "T"} and sum(counts) == 4, (okd, vals, counts))
+
+    # P7. có người mới vào phòng (trạng thái đổi) nhưng trang Random không bị làm mới mất kết quả
+    pg.click("button[data-tab=wheel]")
+    _, newbie = phone()
+    newbie.goto(B)
+    newbie.fill("input[name=username]", "Người mới")
+    newbie.click("button:has-text('Vào phòng')")
+    pg.wait_for_timeout(4500)
+    check("Random: trạng thái phòng đổi, kết quả trên trang vẫn giữ", pg.locator("#wres").get_attribute("data-name") == name)
+
+    # P8. danh sách thêm/bớt và còn sau khi tải lại
+    pg.evaluate("document.getElementById('plist').open = true")
+    pg.fill("#padd", "Lẩu")
+    pg.click("#paddbtn")
+    pg.reload()
+    check("Random: thêm 'Lẩu' vào danh sách và còn sau khi tải lại", "Lẩu" in (pg.locator("#chips").text_content() or ""))
+
+    # P9. trình duyệt chặn lưu trữ (chế độ riêng tư) vẫn chạy
+    c3 = br.new_context(**IPHONE, reduced_motion="reduce")
+    c3.add_init_script("Object.defineProperty(window, 'localStorage', {get(){ throw new Error('blocked'); }});")
+    z = c3.new_page()
+    errs = []
+    z.on("pageerror", lambda e: errs.append(str(e)))
+    z.goto(B + "/picker")
+    z.tap("#spin")
+    z.wait_for_timeout(1100)
+    check("Random: trình duyệt chặn lưu trữ vẫn quay được", not errs and bool(z.locator("#wres").get_attribute("data-name")), errs)
+
+
 def main():
     env = dict(os.environ, PORT=str(PORT), ADMIN_KEY="k")
     env.pop("DATABASE_URL", None)
@@ -114,6 +223,7 @@ def main():
             old.goto(B)
             check("Máy cũ mở lại thì về trang nhập tên", "Vào phòng chơi" in old.content())
 
+            picker_checks(br, phone)
             br.close()
     finally:
         srv.terminate()
