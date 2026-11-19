@@ -28,6 +28,7 @@ game_data = {
     "game_id": 0,             # tăng mỗi ván mới → lá bài úp lại
     "spy": None,              # trạng thái ván Truy Tìm Gián Điệp
     "tod": None,              # Thật hay Thách
+    "trap": None,             # Cá sấu / Hải tặc
     "mission": None,          # Điệp vụ Vũng Tàu, chơi suốt chuyến, không bị xoá khi reset phòng
     "owners": {},             # tên người chơi -> mã trình duyệt đã tạo tên đó (chống trùng tên)
     "version": 0,             # tăng mỗi khi trạng thái đổi → trình duyệt tự cập nhật
@@ -106,7 +107,10 @@ def bump():
 
 AVATARS = ["🦀", "🐙", "🐬", "🐢", "🦈", "🐳", "🦑", "🐠", "🦞", "🐚",
            "🐶", "🐱", "🦊", "🐼", "🐨", "🐯", "🦁", "🐸", "🐵", "🐧",
-           "🦄", "🐝", "🦉", "🐻"]
+           "🦄", "🐝", "🦉", "🐻",
+           # trái cây
+           "🍎", "🍊", "🍋", "🍉", "🍇", "🍓", "🍑", "🍍", "🥭", "🥝",
+           "🍌", "🍒", "🥥", "🍐", "🫐", "🍈"]
 
 
 def av(name):
@@ -263,7 +267,7 @@ body.day{ --ink:#f1e9d6; --ink-2:#fffaf0; --line:#ddd0b2; --moon:#2b2a33; --mist
   --ok:#2f7d4a; --dead:#b8352a; --wolf:#b8352a; --seer:#6b4fb3; --guard:#2a7b78; --villa:#8a6512;
   --witch:#3d7d2c; --hunter:#a8561a; --idiot:#b23d78; }
 .wrap{max-width:480px;margin:0 auto;padding:20px 16px 48px}
-.brand{font:700 15px/1 "Lora",Georgia,serif;color:var(--mist);display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
+.brand{font:700 15px/1 "Lora",Georgia,serif;color:var(--mist);display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;margin-bottom:22px}
 .brand span a + a{margin-left:6px}
 .avs{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:14px}
 .avs label{position:relative;cursor:pointer}
@@ -325,6 +329,40 @@ button.armed{outline:3px solid var(--wolf);outline-offset:2px}
 @keyframes flip{0%{transform:rotateY(0)}100%{transform:rotateY(1080deg)}}
 button.sel{border-color:var(--villa);color:var(--moon)}
 @media (prefers-reduced-motion:reduce){.coin.flip,.draws li{animation:none}}
+.trap{position:relative;margin:8px auto 10px;max-width:360px;overflow-x:clip}
+.croc-head{pointer-events:none;width:fit-content;margin-left:auto;margin-right:auto;font-size:84px;text-align:center;line-height:1;margin-bottom:-14px;position:relative;z-index:2;transition:transform .2s}
+.mouth{background:radial-gradient(ellipse at center,#c0394a 0%,#7a1f2c 70%);border:10px solid #3f8f4f;border-radius:46% 46% 40% 40%/30% 30% 70% 70%;padding:14px 12px 22px;box-shadow:inset 0 0 30px rgba(0,0,0,.45)}
+.teeth{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.teeth.bot{margin-top:46px}
+.teeth form{display:block}
+.tooth{width:100%;height:46px;padding:0;background:#fffdf5;border:2px solid #e9e1c8;border-radius:6px 6px 22px 22px;box-shadow:0 3px 0 #cfc6a6}
+.teeth.bot .tooth{border-radius:22px 22px 6px 6px}
+.tooth.down{background:#8b8579;border-color:#6d685e;box-shadow:none;transform:translateY(4px)}
+.tooth:not(:disabled):active{transform:translateY(3px)}
+.tooth.hit{background:#ff4d4d;border-color:#b00}
+.pirate-head{pointer-events:none;width:fit-content;margin-left:auto;margin-right:auto;font-size:70px;text-align:center;line-height:1;position:relative;z-index:1;margin-bottom:-10px;transition:transform .4s cubic-bezier(.2,1.6,.4,1)}
+.pirate-head .hat{position:absolute;left:50%;top:-30px;transform:translateX(-50%);font-size:34px}
+.barrel{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:22px 20px;border-radius:28px;
+  background:repeating-linear-gradient(90deg,#8a5a2b 0 34px,#7a4e24 34px 36px),#8a5a2b;border:6px solid #4a2f14;
+  box-shadow:inset 0 14px 0 -8px #b8b8b8,inset 0 -14px 0 -8px #b8b8b8}
+.barrel form{display:block}
+.hole{width:100%;aspect-ratio:1;padding:0;border-radius:50%;background:#2a1a0b;border:3px solid #c9a36b;font-size:22px;line-height:1}
+.hole.in{background:#4a3a28}
+.hole.hit{background:#ff4d4d}
+.hole:not(:disabled):active{transform:scale(.92)}
+.trap button:disabled{cursor:default}
+.boombox{animation:pop .35s ease}
+.boomtxt{font:800 44px/1.1 "Lora",Georgia,serif;color:#ff5a5a;text-align:center;text-shadow:0 3px 0 rgba(0,0,0,.35);animation:shake .5s ease 2}
+.trap.croc.boom .croc-head{transform:scale(1.25) rotate(-8deg)}
+.trap.croc.boom .mouth{animation:shake .5s ease 2}
+.trap.pirate{margin-top:40px}
+.trap.pirate.boom{margin-top:110px}
+.trap.pirate.boom .pirate-head{transform:translateY(-70px) rotate(-20deg) scale(1.2)}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+@media (prefers-reduced-motion:reduce){.boomtxt,.trap.croc.boom .mouth,.boombox{animation:none}}
+.trapstart{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+body.flashbad{animation:flashbad .6s ease}
+@keyframes flashbad{0%{background:#7a1020}100%{}}
 .mini{display:inline-block;width:auto;padding:4px 12px;font-size:13px;font-weight:500}
 .brand a{color:var(--mist);font:500 14px "Be Vietnam Pro",system-ui,sans-serif;text-decoration:none;border:1px solid var(--line);padding:6px 12px;border-radius:999px}
 h1{font:700 30px/1.15 "Lora",Georgia,serif;margin:0 0 6px}
@@ -428,8 +466,20 @@ details summary{cursor:pointer;font-weight:500}
     lastSpin = id; lastDeg = deg;
   }
 
+  var lastBoom = null;
+  function boomFx(){
+    var b = app.querySelector('[data-boom]'); if (!b) return;
+    var id = b.dataset.boom;
+    if (id && lastBoom !== null && id !== lastBoom){
+      try { if (navigator.vibrate) navigator.vibrate([300, 100, 300]); } catch(e){}
+      document.body.classList.remove('flashbad'); void document.body.offsetWidth; document.body.classList.add('flashbad');
+    }
+    lastBoom = id;
+  }
+
   function wire(){
     spinWheel();
+    boomFx();
     app.querySelectorAll('form[data-ajax]').forEach(function(f){
       f.onsubmit = function(e){
         e.preventDefault();
@@ -759,6 +809,8 @@ def index(join_msg=None, keep_avatar=None):
         return spy_index(username)
     if username and game_data["phase"] == "TOD" and game_data.get("tod"):
         return tod_render()
+    if username and game_data["phase"] == "TRAP" and game_data.get("trap"):
+        return trap_render()
     info = game_data["players"].get(username) if username else None
     phase = game_data["phase"]
     body_cls = "day" if phase in ("DAY", "VOTE", "HUNTER", "END") else ""
@@ -924,7 +976,7 @@ PHASE_VI = {"LOBBY": "Phòng chờ", "NIGHT": "🌙 Đêm", "DAY": "☀️ Ngày
 
 ADMIN_BODY = """
 <div data-phase="{{ phase }}" data-game="{{ game_id }}" data-body="{{ body_cls }}">
-<div class="brand"><span>HILtrip Quản trò</span><span><a href="/picker?from=admin">🎲</a> <a href="/admin/mission">🎯 Điệp vụ</a> <a href="/">Người chơi</a></span></div>
+<div class="brand"><span>Quản trò</span><span><a href="/picker?from=admin">🎲</a> <a href="/admin/mission">🎯 Điệp vụ</a> <a href="/">Người chơi</a></span></div>
 <h1>{{ phase_vi[phase] }}</h1>
 <p class="sub">{{ total }} người trong phòng{% if phase != 'LOBBY' %} · còn sống {{ alive }}{% endif %}</p>
 
@@ -981,6 +1033,19 @@ ADMIN_BODY = """
   <form action="/admin/assign" method="POST"><input type="hidden" name="gid" value="{{ gid() }}"><button type="submit" {{ 'disabled' if total < 3 }}>🐺 Chơi Ma Sói: chia vai, bắt đầu đêm</button></form>
   """ + SPY_START_FORM.replace("Bắt đầu Truy Tìm Gián Điệp", "🕵️ Chơi Truy Tìm Gián Điệp") + """
   <form action="/admin/tod/start" method="POST"><input type="hidden" name="gid" value="{{ gid() }}"><button type="submit" class="btn-dare" {{ 'disabled' if total < 2 }}>🎡 Chơi Thật hay Thách</button></form>
+  <form action="/admin/trap/start" method="POST" class="stack"><input type="hidden" name="gid" value="{{ gid() }}">
+    <select name="mode"><option value="turn">Theo lượt: đến lượt ai người đó bấm</option><option value="free">Tự do: ai bấm trước người đó chịu</option></select>
+    <select name="pen" id="trappen" onchange="document.getElementById('trappentext').hidden = this.value !== 'custom'">
+      <option value="challenge">Hình phạt: 🎲 thử thách ngẫu nhiên</option>
+      <option value="beer">Hình phạt: 🍺 người thua uống bia</option>
+      <option value="custom">Hình phạt: ✍️ quản trò tự nhập</option>
+    </select>
+    <input type="text" name="pen_text" id="trappentext" maxlength="120" placeholder="Ví dụ: Hát một bài do cả phòng chọn" autocomplete="off" hidden>
+    <div class="trapstart">
+      <button type="submit" name="skin" value="croc" class="btn-guard" {{ 'disabled' if total < 2 }}>🐊 Khám răng cá sấu</button>
+      <button type="submit" name="skin" value="pirate" class="btn-wolf" {{ 'disabled' if total < 2 }}>🏴‍☠️ Đâm hải tặc</button>
+    </div>
+  </form>
   {% if total < 3 %}<p class="count" style="margin:0">Cần ít nhất 3 người.</p>{% endif %}
   {% elif phase == 'NIGHT' %}
   <form action="/admin/next_phase/DAY" method="POST"><button type="submit">Gọi trời sáng</button></form>
@@ -1009,6 +1074,8 @@ def admin_panel():
         return spy_admin()
     if game_data["phase"] == "TOD" and game_data.get("tod"):
         return tod_render(admin=True)
+    if game_data["phase"] == "TRAP" and game_data.get("trap"):
+        return trap_render(admin=True)
     players = game_data["players"]
     phase = game_data["phase"]
     body_cls = "day" if phase in ("DAY", "VOTE", "HUNTER", "END") else ""
@@ -1421,7 +1488,7 @@ SPY_BODY = """
 
 SPY_ADMIN = """
 <div data-phase="SPY-{{ sp.phase }}" data-game="{{ game_id }}" data-body="">
-<div class="brand"><span>HILtrip Quản trò</span><span><a href="/picker?from=admin">🎲</a> <a href="/admin/mission">🎯 Điệp vụ</a> <a href="/">Người chơi</a></span></div>
+<div class="brand"><span>Quản trò</span><span><a href="/picker?from=admin">🎲</a> <a href="/admin/mission">🎯 Điệp vụ</a> <a href="/">Người chơi</a></span></div>
 <h1>🕵️ Gián Điệp{% if sp.phase != 'END' %}, vòng {{ sp.round }}{% endif %}</h1>
 <p class="sub">{{ alive }} người còn trong cuộc · {{ nspy }} gián điệp{% if nwhite %}, {{ nwhite }} Mũ Trắng{% endif %} lúc chia</p>
 
@@ -1974,7 +2041,7 @@ MISSION_BODY = """
 
 MISSION_ADMIN = """
 <div data-phase="MA-{{ m.phase if m else 'NONE' }}" data-body="">
-<div class="brand"><span>HILtrip Quản trò</span><a href="/admin">Trò chơi</a></div>
+<div class="brand"><span>Quản trò</span><a href="/admin">Trò chơi</a></div>
 <h1>🎯 Điệp vụ Vũng Tàu</h1>
 
 {% if not m %}
@@ -2767,6 +2834,229 @@ def admin_lobby():
         for i in game_data["players"].values():
             i.update(role="Villager", alive=True, target=None, acted=False, vote=None)
         bump()
+    return redirect(url_for('admin_panel'))
+
+
+# ================================================================ CÁ SẤU / HẢI TẶC (một luật, hai giao diện)
+TRAP_SKINS = {
+    "croc":   {"name": "Khám răng cá sấu", "icon": "🐊", "slots": 12, "verb": "ấn", "thing": "răng",
+               "boom": "🐊 CẮN!", "lose": "bị cá sấu cắn"},
+    "pirate": {"name": "Đâm hải tặc", "icon": "🏴‍☠️", "slots": 16, "verb": "cắm kiếm vào", "thing": "lỗ",
+               "boom": "🏴‍☠️ BẬT TUNG!", "lose": "làm hải tặc bật tung"},
+}
+
+
+def trap_new_round(t):
+    names = list(game_data["players"].keys())
+    random.shuffle(names)
+    if t.get("loser") in names:                      # người vừa thua đi trước ván sau
+        names.remove(t["loser"])
+        names.insert(0, t["loser"])
+    t.update(phase="PLAY", pressed=[], order=names, turn=0, loser=None, penalty="",
+             trap=secrets.randbelow(TRAP_SKINS[t["skin"]]["slots"]), round=t.get("round", 0) + 1)
+
+
+TRAP_BEER = "🍺 Uống cạn một ly bia! (Ai không uống được bia thì thay bằng nước ngọt.)"
+
+
+def trap_penalty(t):
+    if t.get("pen") == "beer":
+        return TRAP_BEER
+    if t.get("pen") == "custom" and t.get("pen_text"):
+        return t["pen_text"]
+    return random.choice(TOD_PENALTY)
+
+
+def trap_current(t):
+    if t["mode"] != "turn" or not t["order"]:
+        return None
+    return t["order"][t["turn"] % len(t["order"])]
+
+
+TRAP_BODY = """
+<div data-phase="TRAP-{{ t.phase }}-{{ t.round }}" data-game="{{ game_id }}" data-body=""
+     data-boom="{{ t.round if t.phase == 'BOOM' else '' }}">
+<div class="brand"><span>HILtrip {{ sk.name }}</span>
+  <span>{% if mission_on and not admin %}<a href="/mission">🎯 Điệp vụ</a> {% endif %}{% if admin %}<a href="/">Người chơi</a>{% else %}<a href="/logout">Thoát</a>{% endif %}</span></div>
+
+{% if t.phase == 'BOOM' %}
+  <div class="boombox">
+    <div class="boomtxt">{{ sk.boom }}</div>
+    <h1 class="center">{{ av(t.loser) }} {{ t.loser }}{% if t.loser == me %} (bạn!){% endif %}</h1>
+    <p class="sub center">{{ sk.lose }} ở lượt thứ {{ t.pressed|length + 1 }}.</p>
+  </div>
+{% else %}
+  <h1 class="center">{% if cur %}{% if cur == me %}Đến lượt bạn!{% else %}Lượt của {{ av(cur) }} {{ cur }}{% endif %}{% else %}Ai dám {{ sk.verb }} tiếp?{% endif %}</h1>
+  <p class="sub center">{% if cur == me %}Chọn một {{ sk.thing }} để {{ sk.verb }}. Một {{ sk.thing }} có bẫy…{% elif cur %}Tiếp theo: {{ av(nxt) }} {{ nxt }}{% else %}Chế độ tự do: ai bấm trúng bẫy thì người đó chịu.{% endif %}</p>
+{% endif %}
+
+<div class="trap {{ t.skin }}{{ ' boom' if t.phase == 'BOOM' }}">
+  {% if t.skin == 'croc' %}
+  <div class="croc-head">🐊</div>
+  <div class="mouth">
+    {% for row in [range(0, 6), range(6, 12)] %}
+    <div class="teeth {{ 'top' if loop.first else 'bot' }}">
+      {% for i in row %}{% set hit = t.phase == 'BOOM' and i == t.last %}
+      <form method="POST" action="/trap/press" data-ajax><input type="hidden" name="i" value="{{ i }}"><input type="hidden" name="round" value="{{ t.round }}">
+        <button type="submit" class="tooth{{ ' down' if i in t.pressed }}{{ ' hit' if hit }}" aria-label="Răng {{ i + 1 }}" {{ 'disabled' if not can or i in t.pressed }}></button></form>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="pirate-head">🧔🏻‍♂️<span class="hat">🏴‍☠️</span></div>
+  <div class="barrel">
+    {% for i in range(sk.slots) %}{% set hit = t.phase == 'BOOM' and i == t.last %}
+    <form method="POST" action="/trap/press" data-ajax><input type="hidden" name="i" value="{{ i }}"><input type="hidden" name="round" value="{{ t.round }}">
+      <button type="submit" class="hole{{ ' in' if i in t.pressed }}{{ ' hit' if hit }}" aria-label="Lỗ {{ i + 1 }}" {{ 'disabled' if not can or i in t.pressed }}>{% if i in t.pressed or hit %}🗡️{% endif %}</button></form>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+<p class="count center">Đã {{ sk.verb }} {{ t.pressed|length }}/{{ sk.slots }} {{ sk.thing }} · ván {{ t.round }} · thua thì {{ '🍺 uống bia' if t.pen == 'beer' else ('✍️ ' ~ t.pen_text if t.pen == 'custom' else '🎲 bốc thử thách') }}</p>
+{% if t.phase == 'BOOM' %}<div class="tod-card pen"><div class="kind">{{ '🍺' if t.pen == 'beer' else '🙈' }} Hình phạt cho {{ t.loser }}</div><p>{{ t.penalty }}</p></div>{% endif %}
+
+{% if board %}
+<div class="panel">
+  <h2>Thua nhiều nhất</h2>
+  <ol class="roster order">{% for n, k in board[:5] %}<li class="{{ 'me' if n == me }}"><span>{{ av(n) }} {{ n }}</span><b>{{ k }} lần</b></li>{% endfor %}</ol>
+</div>
+{% endif %}
+
+{% if admin %}
+<div class="panel stack" style="margin-top:14px">
+  {% if t.phase == 'BOOM' %}
+  <form action="/admin/trap/again" method="POST"><input type="hidden" name="round" value="{{ t.round }}"><button type="submit" class="btn-dare">🔁 Ván mới</button></form>
+  {% elif cur %}
+  <form action="/admin/trap/skip" method="POST"><input type="hidden" name="round" value="{{ t.round }}"><input type="hidden" name="turn" value="{{ t.turn }}"><button type="submit" class="btn-ghost">Bỏ lượt {{ cur }} (vắng mặt)</button></form>
+  {% endif %}
+  <form action="/admin/lobby" method="POST" data-confirm="Về phòng chờ để chọn trò khác?"><button type="submit" class="btn-ghost">Về phòng chờ, chọn trò khác</button></form>
+</div>
+{% endif %}
+</div>
+"""
+
+TRAP_CSS = """
+.trap{position:relative;margin:8px auto 10px;max-width:360px;overflow-x:clip}
+.croc-head{pointer-events:none;width:fit-content;margin-left:auto;margin-right:auto;font-size:84px;text-align:center;line-height:1;margin-bottom:-14px;position:relative;z-index:2;transition:transform .2s}
+.mouth{background:radial-gradient(ellipse at center,#c0394a 0%,#7a1f2c 70%);border:10px solid #3f8f4f;border-radius:46% 46% 40% 40%/30% 30% 70% 70%;padding:14px 12px 22px;box-shadow:inset 0 0 30px rgba(0,0,0,.45)}
+.teeth{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.teeth.bot{margin-top:46px}
+.teeth form{display:block}
+.tooth{width:100%;height:46px;padding:0;background:#fffdf5;border:2px solid #e9e1c8;border-radius:6px 6px 22px 22px;box-shadow:0 3px 0 #cfc6a6}
+.teeth.bot .tooth{border-radius:22px 22px 6px 6px}
+.tooth.down{background:#8b8579;border-color:#6d685e;box-shadow:none;transform:translateY(4px)}
+.tooth:not(:disabled):active{transform:translateY(3px)}
+.tooth.hit{background:#ff4d4d;border-color:#b00}
+.pirate-head{pointer-events:none;width:fit-content;margin-left:auto;margin-right:auto;font-size:70px;text-align:center;line-height:1;position:relative;z-index:1;margin-bottom:-10px;transition:transform .4s cubic-bezier(.2,1.6,.4,1)}
+.pirate-head .hat{position:absolute;left:50%;top:-30px;transform:translateX(-50%);font-size:34px}
+.barrel{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:22px 20px;border-radius:28px;
+  background:repeating-linear-gradient(90deg,#8a5a2b 0 34px,#7a4e24 34px 36px),#8a5a2b;border:6px solid #4a2f14;
+  box-shadow:inset 0 14px 0 -8px #b8b8b8,inset 0 -14px 0 -8px #b8b8b8}
+.barrel form{display:block}
+.hole{width:100%;aspect-ratio:1;padding:0;border-radius:50%;background:#2a1a0b;border:3px solid #c9a36b;font-size:22px;line-height:1}
+.hole.in{background:#4a3a28}
+.hole.hit{background:#ff4d4d}
+.hole:not(:disabled):active{transform:scale(.92)}
+.trap button:disabled{cursor:default}
+.boombox{animation:pop .35s ease}
+.boomtxt{font:800 44px/1.1 "Lora",Georgia,serif;color:#ff5a5a;text-align:center;text-shadow:0 3px 0 rgba(0,0,0,.35);animation:shake .5s ease 2}
+.trap.croc.boom .croc-head{transform:scale(1.25) rotate(-8deg)}
+.trap.croc.boom .mouth{animation:shake .5s ease 2}
+.trap.pirate{margin-top:40px}
+.trap.pirate.boom{margin-top:110px}
+.trap.pirate.boom .pirate-head{transform:translateY(-70px) rotate(-20deg) scale(1.2)}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+@media (prefers-reduced-motion:reduce){.boomtxt,.trap.croc.boom .mouth,.boombox{animation:none}}
+.trapstart{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+"""
+
+
+def trap_render(admin=False):
+    t = game_data["trap"]
+    me = session.get('username')
+    cur = trap_current(t)
+    nxt = t["order"][(t["turn"] + 1) % len(t["order"])] if cur and len(t["order"]) > 1 else None
+    can = t["phase"] == "PLAY" and (admin or (t["mode"] == "free" and me in game_data["players"]) or (cur and cur == me))
+    board = sorted(((n, k) for n, k in t["losses"].items()), key=lambda kv: -kv[1])
+    body = render_template_string(TRAP_BODY, t=t, sk=TRAP_SKINS[t["skin"]], me=me, cur=cur, nxt=nxt, can=can,
+                                  admin=admin, board=board, game_id=game_data["game_id"],
+                                  mission_on=bool(game_data.get("mission")))
+    return page("HILtrip " + TRAP_SKINS[t["skin"]]["name"], body, "", "/admin?partial=1" if admin else "/?partial=1")
+
+
+@app.route('/admin/trap/start', methods=['POST'])
+def trap_start():
+    skin = request.form.get("skin")
+    mode = "free" if request.form.get("mode") == "free" else "turn"
+    with _lock:
+        if skin in TRAP_SKINS and fresh_gid() and game_data["players"]:
+            pen = request.form.get("pen")
+            pen_text = (request.form.get("pen_text") or "").strip()[:120]
+            if pen not in ("challenge", "beer", "custom") or (pen == "custom" and not pen_text):
+                pen = "challenge"
+            t = {"skin": skin, "mode": mode, "losses": {}, "round": 0, "pen": pen, "pen_text": pen_text}
+            trap_new_round(t)
+            game_data["trap"] = t
+            game_data["phase"] = "TRAP"
+            game_data["game_id"] += 1
+            bump()
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/trap/press', methods=['POST'])
+def trap_press():
+    me = session.get('username')
+    with _lock:
+        t = game_data.get("trap")
+        if not (t and game_data["phase"] == "TRAP" and t["phase"] == "PLAY"):
+            return redirect(url_for('index'))
+        try:
+            i = int(request.form.get("i", -1))
+            rnd = int(request.form.get("round", -1))
+        except ValueError:
+            return redirect(url_for('index'))
+        n = TRAP_SKINS[t["skin"]]["slots"]
+        if rnd != t["round"] or not (0 <= i < n) or i in t["pressed"]:
+            return redirect(url_for('index'))         # bấm lặp / ván cũ / ô đã bấm: bỏ qua
+        cur = trap_current(t)
+        if t["mode"] == "turn":
+            if not (me == cur or is_admin()):
+                return redirect(url_for('index'))
+            who = cur
+        else:
+            if me not in game_data["players"] and not is_admin():
+                return redirect(url_for('index'))
+            who = me if me in game_data["players"] else "Quản trò"
+        t["last"] = i
+        if i == t["trap"]:
+            t.update(phase="BOOM", loser=who, penalty=trap_penalty(t))
+            t["losses"][who] = t["losses"].get(who, 0) + 1
+        else:
+            t["pressed"].append(i)
+            t["turn"] += 1
+        bump()
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/trap/again', methods=['POST'])
+def trap_again():
+    with _lock:
+        t = game_data.get("trap")
+        if t and game_data["phase"] == "TRAP" and t["phase"] == "BOOM" and request.form.get("round") == str(t["round"]):
+            trap_new_round(t)
+            bump()
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/trap/skip', methods=['POST'])
+def trap_skip():
+    with _lock:
+        t = game_data.get("trap")
+        if (t and game_data["phase"] == "TRAP" and t["phase"] == "PLAY" and t["mode"] == "turn"
+                and request.form.get("round") == str(t["round"]) and request.form.get("turn") == str(t["turn"])):
+            t["turn"] += 1
+            bump()
     return redirect(url_for('admin_panel'))
 
 

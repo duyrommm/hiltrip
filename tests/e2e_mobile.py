@@ -134,6 +134,87 @@ def picker_checks(br, phone):
     check("Random: trình duyệt chặn lưu trữ vẫn quay được", not errs and bool(z.locator("#wres").get_attribute("data-name")), errs)
 
 
+def trap_checks(br, phone, adm):
+    """Khám răng cá sấu / Đâm hải tặc trên 3 điện thoại."""
+    post = lambda path, data=None: adm.evaluate(
+        "([p, d]) => fetch(p, {method:'POST', body:new URLSearchParams(d || {})}).then(r => r.status)", [path, data])
+    post("/admin/reset")
+    phones = {}
+    for n, e in [("Ổi", "🍐"), ("Mít", "🥭"), ("Dừa", "🥥")]:
+        ctx, pg = phone()
+        pg.add_init_script("window.__vib = 0; navigator.vibrate = function(){ window.__vib++; return true; };")
+        pg.goto(B)
+        pg.click(f"label[title='{e}']")
+        pg.fill("input[name=username]", n)
+        pg.click("button:has-text('Vào phòng')")
+        phones[n] = pg
+    gid = adm.evaluate("fetch('/admin').then(r => r.text()).then(t => t.match(/name=\"gid\" value=\"(\\d+)\"/)[1])")
+    post("/admin/trap/start", {"skin": "croc", "mode": "turn", "gid": gid})
+    for pg in phones.values():
+        pg.goto(B)
+
+    def who_turn():
+        for n, pg in phones.items():
+            pg.reload()
+            if "Đến lượt bạn" in pg.content():
+                return n
+        return None
+
+    cur = who_turn()
+    others = [n for n in phones if n != cur]
+    dis = phones[others[0]].locator(".tooth[disabled]").count()
+    check("Cá sấu: chưa tới lượt thì không bấm được răng nào", dis == 12, dis)
+
+    # răng hàng trên ở giữa nằm ngay dưới hình cá sấu: chạm thật phải ăn
+    v0 = state(phones[cur])
+    tooth = phones[cur].locator(".teeth.top .tooth").nth(2)
+    bb = tooth.bounding_box()
+    edge = {"x": bb["width"] / 2, "y": 4}                    # sát mép trên: chỗ hình cá sấu đè lên
+    hit = phones[cur].evaluate("([x,y]) => { const e = document.elementFromPoint(x,y); return e ? (e.closest('.tooth') ? 'tooth' : e.className || e.tagName) : null }",
+                               [bb["x"] + edge["x"], bb["y"] + edge["y"]])
+    check("Cá sấu: điểm chạm ở mép răng thuộc về răng, không bị hình che", hit == "tooth", hit)
+    phones[cur].touchscreen.tap(bb["x"] + edge["x"], bb["y"] + edge["y"])
+    phones[cur].touchscreen.tap(bb["x"] + edge["x"], bb["y"] + edge["y"])   # chạm dồn lần 2
+    phones[cur].wait_for_timeout(1500)
+    dv = state(phones[cur]) - v0
+    check("Cá sấu: chạm răng nằm dưới hình cá sấu vẫn ăn, chạm dồn chỉ tính 1", dv == 1, dv)
+
+    watcher = phones[others[1]]
+    watcher.wait_for_timeout(2600)
+    synced = watcher.locator(".tooth.down").count() == 1 or "CẮN!" in watcher.content()
+    check("Cá sấu: máy khác thấy răng vừa ấn sau vài giây (đồng bộ)", synced)
+
+    # ép sập bẫy: quản trò ấn hộ lần lượt các răng
+    for i in range(12):
+        st = adm.evaluate("fetch('/admin').then(r => r.text())")
+        if "Ván mới" in st:
+            break
+        rnd = adm.evaluate("fetch('/admin').then(r => r.text()).then(t => (t.match(/name=\"round\" value=\"(\\d+)\"/) || [])[1])")
+        post("/trap/press", {"i": str(i), "round": rnd})
+    watcher.wait_for_timeout(3000)
+    vw = watcher.evaluate("[innerWidth, document.documentElement.scrollWidth]")
+    check("Cá sấu: khi cắn màn hình không bị rộng ra / thu nhỏ", vw[0] <= 390 and vw[1] <= 390, vw)
+    check("Cá sấu: sập bẫy thì mọi máy hiện CẮN! và rung", "CẮN!" in watcher.content() and watcher.evaluate("window.__vib") > 0,
+          watcher.evaluate("window.__vib"))
+
+    # hải tặc
+    post("/admin/lobby")
+    gid = adm.evaluate("fetch('/admin').then(r => r.text()).then(t => t.match(/name=\"gid\" value=\"(\\d+)\"/)[1])")
+    post("/admin/trap/start", {"skin": "pirate", "mode": "free", "gid": gid})
+    pg = phones[others[0]]
+    pg.goto(B)
+    v0 = state(pg)
+    hb = pg.locator(".hole").nth(1).bounding_box()
+    gap = pg.evaluate("() => { const h = document.querySelector('.pirate-head .hat').getBoundingClientRect(); const t = [...document.querySelectorAll('#app p, #app h1, #app h2')].filter(e => e.getBoundingClientRect().bottom <= h.bottom).pop(); return t ? Math.round(h.top - t.getBoundingClientRect().bottom) : 99 }")
+    check("Hải tặc: mũ không đè lên chữ phía trên", gap >= 0, gap)
+    hit = pg.evaluate("([x,y]) => { const e = document.elementFromPoint(x,y); return e ? (e.closest('.hole') ? 'hole' : e.className || e.tagName) : null }",
+                      [hb["x"] + hb["width"] / 2, hb["y"] + 4])
+    check("Hải tặc: điểm chạm ở mép lỗ thuộc về lỗ, không bị hình che", hit == "hole", hit)
+    pg.touchscreen.tap(hb["x"] + hb["width"] / 2, hb["y"] + 4)                  # sát mép trên, dưới hình hải tặc
+    pg.wait_for_timeout(1500)
+    check("Hải tặc: chạm lỗ hàng trên (dưới hình hải tặc) vẫn ăn", state(pg) - v0 == 1)
+
+
 def main():
     env = dict(os.environ, PORT=str(PORT), ADMIN_KEY="k")
     env.pop("DATABASE_URL", None)
@@ -224,6 +305,7 @@ def main():
             check("Máy cũ mở lại thì về trang nhập tên", "Vào phòng chơi" in old.content())
 
             picker_checks(br, phone)
+            trap_checks(br, phone, adm)
             br.close()
     finally:
         srv.terminate()
