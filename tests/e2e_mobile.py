@@ -215,6 +215,40 @@ def trap_checks(br, phone, adm):
     check("Hải tặc: chạm lỗ hàng trên (dưới hình hải tặc) vẫn ăn", state(pg) - v0 == 1)
 
 
+def network_drop_checks(br, phone, adm):
+    """Rớt mạng đúng lúc điện thoại đang tải giao diện mới: lần hỏi sau phải tự tải lại."""
+    post = lambda path, data=None: adm.evaluate(
+        "([p, d]) => fetch(p, {method:'POST', body:new URLSearchParams(d || {})}).then(r => r.status)", [path, data])
+    post("/admin/reset")
+    pages = []
+    for n in ("Na", "Lê"):
+        ctx, pg = phone()
+        pg.goto(B)
+        pg.fill("input[name=username]", n)
+        pg.click("button:has-text('Vào phòng')")
+        pages.append(pg)
+    pg = pages[0]
+    pg.wait_for_timeout(2500)
+    dropped = []
+    def drop_once(route):
+        if not dropped:
+            dropped.append(route.request.url)
+            route.abort("internetdisconnected")
+        else:
+            route.continue_()
+    pg.route("**/?partial=1", drop_once)
+    gid = adm.evaluate("fetch('/admin').then(r => r.text()).then(t => t.match(/name=\"gid\" value=\"(\\d+)\"/)[1])")
+    post("/admin/tod/start", {"gid": gid})
+    ok = False
+    for _ in range(40):
+        pg.wait_for_timeout(250)
+        if pg.locator("[data-phase^=TOD]").count():
+            ok = True
+            break
+    check("Rớt mạng lúc đang tải giao diện mới: vài giây sau tự cập nhật đúng màn hình", bool(dropped) and ok, (len(dropped), ok))
+    pg.unroute("**/?partial=1")
+
+
 def main():
     env = dict(os.environ, PORT=str(PORT), ADMIN_KEY="k")
     env.pop("DATABASE_URL", None)
@@ -306,6 +340,7 @@ def main():
 
             picker_checks(br, phone)
             trap_checks(br, phone, adm)
+            network_drop_checks(br, phone, adm)
             br.close()
     finally:
         srv.terminate()

@@ -6,9 +6,25 @@ import logging
 import secrets
 import time
 from datetime import datetime, timezone, timedelta
-from flask import Flask, render_template_string, request, redirect, url_for, session, abort, jsonify
+from flask import Flask, request, redirect, url_for, session, abort, jsonify, current_app
 
 app = Flask(__name__)
+
+
+# Dịch mỗi mẫu giao diện (chuỗi hằng) một lần rồi dùng lại. render_template_string của Flask dịch lại
+# từ đầu ở mọi lượt tải trang, chiếm ~99% CPU; Render miễn phí chỉ có ~0,1 CPU nên cả đoàn sẽ bị chậm.
+_TEMPLATES = {}
+
+
+def render_template_string(source, **context):
+    tpl = _TEMPLATES.get(source)
+    if tpl is None:
+        if len(_TEMPLATES) > 64:
+            _TEMPLATES.clear()
+        tpl = _TEMPLATES[source] = current_app.jinja_env.from_string(source)
+    current_app.update_template_context(context)
+    return tpl.render(context)
+
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)   # đặt SECRET_KEY trên Render (Environment)
 # Phiên đăng nhập sống 7 ngày: tắt trình duyệt mở lại vẫn vào đúng người chơi
 app.permanent_session_lifetime = timedelta(days=7)
@@ -560,6 +576,9 @@ details summary{cursor:pointer;font-weight:500}
       if (s2 && keep !== null) { s2.value = keep; if (s2.value !== keep) s2.selectedIndex = 0; }
       var cb2 = app.querySelector('input[type=checkbox]'); if (cb2 && keepCb !== null) cb2.checked = keepCb;
       wire();
+    }).catch(function(){
+      // tải giao diện mới bị rớt mạng: quên phiên bản vừa ghi để lần hỏi sau (2 giây) tải lại
+      v = null; live.classList.add('off');
     }).finally(function(){ busy = false; });
   }
 
