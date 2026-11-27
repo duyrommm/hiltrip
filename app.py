@@ -385,6 +385,9 @@ h1{font:700 30px/1.15 "Lora",Georgia,serif;margin:0 0 6px}
 .sub{color:var(--mist);margin:0 0 22px}
 .panel{background:var(--ink-2);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
 .panel + .panel{margin-top:14px}
+.drivers{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px}
+.drv{display:flex;gap:8px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:12px;font-size:15px}
+.drv input{width:20px;height:20px;flex:none}
 .panel h2{font:600 15px/1.3 "Be Vietnam Pro",system-ui,sans-serif;color:var(--mist);margin:0 0 10px}
 input[type=text],select{
   width:100%;font:inherit;color:var(--moon);background:var(--ink);
@@ -557,7 +560,8 @@ details summary{cursor:pointer;font-weight:500}
     busy = true;
     // giữ lựa chọn đang chọn dở trong ô select
     var sel = app.querySelector('select'), keep = sel ? sel.value : null;
-    var cb = app.querySelector('input[type=checkbox]'), keepCb = cb ? cb.checked : null;
+    // giữ mọi ô tích đang chọn (ví dụ danh sách tài xế) khi giao diện tự tải lại
+    var keepCbs = Array.prototype.map.call(app.querySelectorAll('input[type=checkbox]'), function(x){ return [x.name, x.value, x.checked]; });
     fetch(partial, {cache:'no-store'}).then(function(r){
       if (r.redirected || !r.ok) { location.reload(); return null; }
       return r.text();
@@ -574,7 +578,10 @@ details summary{cursor:pointer;font-weight:500}
       if (phaseAfter && gameBefore !== undefined && phaseAfter.game !== gameBefore) opened = false;
       var s2 = app.querySelector('select');
       if (s2 && keep !== null) { s2.value = keep; if (s2.value !== keep) s2.selectedIndex = 0; }
-      var cb2 = app.querySelector('input[type=checkbox]'); if (cb2 && keepCb !== null) cb2.checked = keepCb;
+      keepCbs.forEach(function(k){
+        var x = app.querySelector('input[type=checkbox][name="' + k[0] + '"][value="' + (window.CSS && CSS.escape ? CSS.escape(k[1]) : k[1]) + '"]');
+        if (x) x.checked = k[2];
+      });
       wire();
     }).catch(function(){
       // tải giao diện mới bị rớt mạng: quên phiên bản vừa ghi để lần hỏi sau (2 giây) tải lại
@@ -1902,9 +1909,15 @@ def m_open_stage(m, idx):
     m_add_agents(m)
     key = MISSION_STAGES[idx]["key"]
     names = list(m["agents"].keys())
+    if key == "road":
+        # Tài xế đang lái: không nhận nhiệm vụ và không bị ai nhắm tới (không ai dụ tài xế cầm điện thoại)
+        drivers = set(m.get("drivers", []))
+        names = [n for n in names if n not in drivers]
     targets = m_derange(names)
     taken = set()
     for name in names:
+        if name not in targets:          # còn dưới 2 người chơi được ở chặng này
+            continue
         a = m["agents"][name]
         pool = MISSIONS[key] if key == "road" else MISSIONS[key] + MISSIONS["any"]
         text = m_pick(pool, a["used"], taken)
@@ -2024,7 +2037,11 @@ MISSION_BODY = """
       </form>
     </div>
     {% else %}
+    {% if driving %}
+    <div class="note" style="margin-top:14px">🚗 Bạn đang lái xe nên chặng Khởi hành không có nhiệm vụ, cũng không ai được nhắm vào bạn. Cất điện thoại, lái xe an toàn nhé! Nhiệm vụ của bạn bắt đầu từ chặng Cà phê Umi+.</div>
+    {% else %}
     <div class="note" style="margin-top:14px">Bạn đã xong hết nhiệm vụ. Chờ quản trò mở chặng tiếp theo nhé.</div>
+    {% endif %}
     {% endfor %}
     {% if closed_tasks %}
     <div class="panel" style="margin-top:14px">
@@ -2071,6 +2088,11 @@ MISSION_ADMIN = """
   </div>
   <div class="panel stack">
     <form action="/admin/mission/start" method="POST" data-confirm="Bắt đầu điệp vụ? Mọi người sẽ nhận vai và nhiệm vụ chặng 1.">
+      {% if pnames %}
+      <h2 style="margin:0">🚗 Ai đang lái xe?</h2>
+      <p class="sub" style="margin:4px 0 8px">Người được chọn không nhận nhiệm vụ và không bị ai nhắm tới ở chặng Khởi hành, để không ai dụ tài xế cầm điện thoại. Từ chặng Cà phê Umi+ chơi bình thường.</p>
+      <div class="drivers">{% for n in pnames %}<label class="drv"><input type="checkbox" name="driver" value="{{ n }}"> {{ av(n) }} {{ n }}</label>{% endfor %}</div>
+      {% endif %}
       <button type="submit" {{ 'disabled' if total < 4 }}>Bắt đầu điệp vụ (chặng 1: Khởi hành)</button></form>
     {% if total < 4 %}<p class="count" style="margin:0">Cần ít nhất 4 người.</p>{% endif %}
   </div>
@@ -2178,6 +2200,7 @@ def mission_page():
         ctx["nspy"] = sum(1 for x in m["agents"].values() if x["role"] == "spy")
         ctx["voted"] = sum(1 for x in m["agents"].values() if x["vote"])
         ctx["total"] = len(m["agents"])
+        ctx["driving"] = me in m.get("drivers", []) and MISSION_STAGES[m["stage"]]["key"] == "road"
         if a:
             mine = [dict(t, html=m_text(t)) for t in m["tasks"] if t["owner"] == me]
             ctx["open_tasks"] = [t for t in mine if t["status"] == "open"][::-1]
@@ -2250,7 +2273,7 @@ def mission_vote():
 def mission_admin():
     m = m_get()
     ctx = dict(m=m, stages=MISSION_STAGES, total=len(game_data["players"]), me=session.get('username'),
-               spy_n=m_spy_count(len(game_data["players"])))
+               spy_n=m_spy_count(len(game_data["players"])), pnames=list(game_data["players"]))
     if m:
         ctx["n_done"] = sum(1 for t in m["tasks"] if t["status"] == "done")
         ctx["n_caught"] = sum(1 for t in m["tasks"] if t["status"] == "caught")
@@ -2259,10 +2282,11 @@ def mission_admin():
     return page("HILtrip Quản trò", body, "", "/admin/mission?partial=1")
 
 
-def m_create(force_role=None, me=None):
+def m_create(force_role=None, me=None, drivers=None):
     m = {"phase": "PLAY", "stage": 0, "agents": {}, "tasks": [], "next_id": 1,
          "started": now_vn(), "result": "", "caught": [], "demo": False, "bots": []}
     m_add_agents(m)
+    m["drivers"] = [d for d in (drivers or []) if d in m["agents"]]
     names = list(m["agents"])
     k = m_spy_count(len(names))
     pool = [n for n in names if n != me] if force_role and me in names else names
@@ -2280,7 +2304,7 @@ def m_create(force_role=None, me=None):
 def mission_start():
     with _lock:
         if not m_get() and len(game_data["players"]) >= 4:
-            game_data["mission"] = m_create()
+            game_data["mission"] = m_create(drivers=request.form.getlist("driver"))
             bump()
     return redirect(url_for('mission_admin'))
 
